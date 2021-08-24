@@ -20,6 +20,7 @@ package raft
 import (
 	"../labrpc"
 	"context"
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -86,6 +87,9 @@ type Raft struct {
 
 	applyCh chan ApplyMsg
 	statCh  chan Stat
+
+	service context.Context
+	cancel  context.CancelFunc
 }
 
 // GetState 询问 Raft 当前任期，以及当前服务是否是 Leader
@@ -95,7 +99,9 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isLeader bool
 	// Your code here (2A).
-	term = int(atomic.LoadInt32(&rf.currentTerm))
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term = int(rf.currentTerm)
 	isLeader = atomic.LoadInt32((*int32)(&rf.state)) == int32(Leader)
 	return term, isLeader
 }
@@ -162,49 +168,6 @@ type RequestVoteReply struct {
 	VoteGranted bool // true 意味着该 candidate 收到选票
 }
 
-// RequestVote 传入 RPC handler
-// 候选人在选举期间发起请求投票
-// 如果投票人自己的日志比候选人的日志更新，则投票人拒绝投票。
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if args.Term < rf.currentTerm {
-		reply.VoteGranted = false
-	} else if args.Term == rf.currentTerm {
-		if rf.votedFor == -1 || rf.votedFor == args.CandidateId && args.LastLogIndex >= len(rf.logs)-1 {
-			reply.VoteGranted = true
-			rf.votedFor = args.CandidateId
-		} else {
-			reply.VoteGranted = false
-		}
-	} else {
-		rf.SetState(Follower)
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
-		reply.VoteGranted = true
-	}
-	reply.Term = rf.currentTerm
-}
-
-// 发送 RPC
-// example code to send a RequestVote RPC to a server.
-// server 是目标服务器在 rf.peers[] 中的索引, 需要 args 中的 RPC 参数
-// NOTE:传递给 Call() 的参数和回复的类型必须与声明在 handler 中的参数类型相同（包括是否为指针）
-// labrpc 包模拟有损网络，其中服务器可能无法访问，其中请求和回复可能会丢失
-// Call() 发送请求并等待回复。如果在超时间隔内收到回复，Call() 返回 true
-// 否则 Call() 返回 false。因此 Call() 可能暂时不会返回
-// 一个错误的返回可能是由一个死服务器引起的，或是一个活跃的服务器无法访问、请求丢失或回复丢失
-// Call() 保证返回（可能在延迟之后）*除非*如果，服务器端的处理函数不返回
-// 因此有不需要在 Call() 周围实现自己的超时
-// 查看 ../labrpc/labrpc.go 中的注释以获取更多详细信息
-// 如果您在使 RPC 工作时遇到问题，请检查您是否已将通过 RPC 传递的结构中的所有字段名称大写
-// 并且调用者使用 & 传递回复结构的地址，而不是结构体本身
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
-}
-
 // AppendEntries 同步
 type AppendEntries struct {
 }
@@ -226,6 +189,19 @@ type AppendEntryReply struct {
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntryArgs, reply *AppendEntryReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
+	applyMsg := ApplyMsg{
+		CommandValid: true,
+		Command:      nil,
+		CommandIndex: args.LeaderCommitIndex,
+	}
+	rf.applyCh <- applyMsg
+	rf.mu.Lock()
+	reply.Term = rf.currentTerm
+	reply.Success = true
+	rf.mu.Unlock()
 }
 
 // Start 在新的时刻开始共识同步
@@ -280,7 +256,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C)
 	rand.Seed(time.Now().Unix())
-	go rf.raftService()
+
 	rf.currentTerm = 0
 	rf.votedFor = -1 // 即 voteFor 为 null
 	rf.voteCount = 0
@@ -292,7 +268,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.matchIndex = make([]int, len(peers))
 	rf.logs = make([]Log, 0)
 	rf.applyCh = applyCh
+	rf.statCh = make(chan Stat)
 
+	go rf.raftService()
 	rf.SetState(Follower)
 
 	// initialize from state persisted before a crash
@@ -311,15 +289,23 @@ func (rf *Raft) raftService() {
 	ctx, cancel := context.WithCancel(context.Background())
 	for {
 		curStat := <-rf.statCh
-		cancel()
+		fmt.Println(curStat)
+		// 如果有原状态，杀死原状态
+		if rf.service != nil {
+			rf.cancel()
+		}
+		// 创建新上下文
+		rf.service, rf.cancel = context.WithCancel(ctx)
+		// 创建新服务
 		switch curStat {
 		case Follower:
-			go rf.followerService(ctx)
+			go rf.followerService(rf.service)
 		case Leader:
-			go rf.leaderService(ctx)
+			go rf.leaderService(rf.service)
 		case Candidate:
-			go rf.candidateService(ctx)
+			go rf.candidateService(rf.service)
 		case Shutdown:
+			cancel()
 			return
 		}
 	}
@@ -327,15 +313,18 @@ func (rf *Raft) raftService() {
 
 // leaderService 复制日志，发送心跳包
 func (rf *Raft) leaderService(ctx context.Context) {
-	leaderContext, cancel := context.WithCancel(context.Background())
+	leaderContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go rf.sendHeartBeat(leaderContext)
-	select {
-	case <-ctx.Done():
-		return
-	default:
-		// 日志服务
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// 日志服务
+		}
 	}
+
 }
 
 // 发送心跳包
@@ -369,7 +358,9 @@ func (rf *Raft) sendHeartBeat(ctx context.Context) {
 func (rf *Raft) followerService(ctx context.Context) {
 	for {
 		select {
+		// 收到包
 		case <-rf.applyCh:
+			fmt.Println("收到心跳包")
 		case <-time.After(rf.getOvertime()):
 			rf.mu.Lock()
 			rf.votedFor = rf.me
@@ -386,22 +377,22 @@ func (rf *Raft) followerService(ctx context.Context) {
 // 当转换成 candidate 时开始选举
 // 如果从半数以上服务器收到选票，变成 leader
 func (rf *Raft) candidateService(ctx context.Context) {
-
+	rf.election()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(rf.getOvertime()):
 			// 如果选举在一定时间内未完成，重新进行选举
-		default:
 			rf.election()
 		}
 	}
 }
 
+// TODO 随机初始时间？
 func (rf *Raft) election() {
-	atomic.AddInt32(&rf.currentTerm, 1)
 	rf.mu.Lock()
+	rf.currentTerm += 1
 	rf.votedFor = rf.me
 	rf.mu.Unlock()
 	args := RequestVoteArgs{
@@ -424,7 +415,10 @@ func (rf *Raft) voteResultHandle(server int, args RequestVoteArgs) {
 	reply := RequestVoteReply{}
 	ok := rf.sendRequestVote(server, &args, &reply)
 	if ok {
-		if reply.Term > rf.currentTerm {
+		rf.mu.Lock()
+		curTerm := rf.currentTerm
+		rf.mu.Unlock()
+		if reply.Term > curTerm {
 			rf.mu.Lock()
 			rf.currentTerm = reply.Term
 			rf.votedFor = -1
@@ -445,4 +439,48 @@ func (rf *Raft) voteResultHandle(server int, args RequestVoteArgs) {
 			}
 		}
 	}
+}
+
+// RequestVote 传入 RPC handler
+// 候选人在选举期间发起请求投票
+// 如果投票人自己的日志比候选人的日志更新，则投票人拒绝投票。
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	// Your code here (2A, 2B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	// 比自己任期小，将不给他投，回复自己任期
+	if args.Term < rf.currentTerm {
+		reply.VoteGranted = false
+	} else if args.Term == rf.currentTerm {
+		if rf.votedFor == -1 || rf.votedFor == args.CandidateId && args.LastLogIndex >= len(rf.logs)-1 {
+			reply.VoteGranted = true
+			rf.votedFor = args.CandidateId
+		} else {
+			reply.VoteGranted = false
+		}
+	} else {
+		rf.SetState(Follower)
+		rf.currentTerm = args.Term
+		rf.votedFor = -1
+		reply.VoteGranted = true
+	}
+	reply.Term = rf.currentTerm
+}
+
+// 发送 RPC
+// example code to send a RequestVote RPC to a server.
+// server 是目标服务器在 rf.peers[] 中的索引, 需要 args 中的 RPC 参数
+// NOTE:传递给 Call() 的参数和回复的类型必须与声明在 handler 中的参数类型相同（包括是否为指针）
+// labrpc 包模拟有损网络，其中服务器可能无法访问，其中请求和回复可能会丢失
+// Call() 发送请求并等待回复。如果在超时间隔内收到回复，Call() 返回 true
+// 否则 Call() 返回 false。因此 Call() 可能暂时不会返回
+// 一个错误的返回可能是由一个死服务器引起的，或是一个活跃的服务器无法访问、请求丢失或回复丢失
+// Call() 保证返回（可能在延迟之后）*除非*如果，服务器端的处理函数不返回
+// 因此有不需要在 Call() 周围实现自己的超时
+// 查看 ../labrpc/labrpc.go 中的注释以获取更多详细信息
+// 如果您在使 RPC 工作时遇到问题，请检查您是否已将通过 RPC 传递的结构中的所有字段名称大写
+// 并且调用者使用 & 传递回复结构的地址，而不是结构体本身
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return ok
 }
