@@ -170,12 +170,12 @@ func renameTempFiles(tempFiles map[int]*os.File, taskID int) error {
 
 type ByKey []KeyValue
 
-// for sorting by key.
+// Len for sorting by key.
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
-// 执行 Reduce 任务
+// ReduceTask 执行 Reduce 任务
 func ReduceTask(reducef func(string, []string) string, task Task) {
 	temp := readTempFiles(task)
 	sort.Sort(ByKey(temp))

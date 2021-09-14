@@ -1,4 +1,4 @@
-# Paper 1 - 思考
+# Paper 1 - note
 
 ## 问题
 
