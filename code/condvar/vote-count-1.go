@@ -3,6 +3,8 @@ package main
 import "time"
 import "math/rand"
 
+// 统计选票 candidate，给所有 follow 发送投票请求
+// 未保护
 func main() {
 	rand.Seed(time.Now().UnixNano())
 

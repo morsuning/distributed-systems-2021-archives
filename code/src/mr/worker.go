@@ -41,10 +41,10 @@ func ihash(key string) int {
 
 // Worker main/mrworker.go calls this function.
 // 创建一个 Worker 进程，等待指令
-// 通过 RPC 请求任务;等待机制，让 Worker 不断询问还是由 Master 通知
+// 通过 RPC 请求任务;等待机制，让 Worker 不断询问还是由 Coordinator 通知
 // 读文件并运行任务 - 得到的格式，任务类型和文件位置
 // 使用encoding/json写读中间文件
-// 完成任务通知 Master，任务完成状态和位置
+// 完成任务通知 Coordinator，任务完成状态和位置
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	for {
@@ -71,15 +71,15 @@ func Worker(mapf func(string, string) []KeyValue,
 func questTask() *GetTaskReply {
 	args := Args{}
 	reply := GetTaskReply{}
-	call("Master.GetTaskHandler", &args, &reply)
-	log.Printf("Get Task From Master: (%v, %d)", reply.Task.TaskType, reply.Task.Id)
+	call("Coordinator.GetTaskHandler", &args, &reply)
+	log.Printf("Get Task From Coordinator: (%v, %d)", reply.Task.TaskType, reply.Task.Id)
 	return &reply
 }
 
 func finishTask(task Task) *FinishTaskReply {
 	args := Args{task}
 	reply := FinishTaskReply{}
-	call("Master.FinishTaskHandler", &args, &reply)
+	call("Coordinator.FinishTaskHandler", &args, &reply)
 	return &reply
 }
 
@@ -90,12 +90,17 @@ func finishTask(task Task) *FinishTaskReply {
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	sockname := masterSock()
+	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("Dialing:", err)
 	}
-	defer c.Close()
+	defer func(c *rpc.Client) {
+		err := c.Close()
+		if err != nil {
+			log.Fatal("Closing:", err)
+		}
+	}(c)
 
 	err = c.Call(rpcname, args, reply)
 	if err == nil {

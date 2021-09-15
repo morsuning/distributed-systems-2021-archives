@@ -4,6 +4,7 @@ import "sync"
 import "time"
 import "math/rand"
 
+// 修复 vote-count-1 中存在的问题
 func main() {
 	rand.Seed(time.Now().UnixNano())
 

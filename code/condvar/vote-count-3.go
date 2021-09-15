@@ -4,6 +4,7 @@ import "sync"
 import "time"
 import "math/rand"
 
+// 在 2 的基础上减少 CPU 占用
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
