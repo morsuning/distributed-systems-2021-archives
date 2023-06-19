@@ -127,12 +127,12 @@ protocol is one way to solve this problem.
 
 Q: The last two paragraphs of section 6 discuss removed servers
 interfering with the cluster by trying to get elected even though
-they’ve been removed from the configuration.
-Wouldn’t a simpler solution be to require servers to be
+they鈥檝e been removed from the configuration.
+Wouldn鈥檛 a simpler solution be to require servers to be
 shut down when they leave the configuration? It seems that leaving the
-cluster implies that a server can’t send or receive RPCs to
-the rest of the cluster anymore, but the paper doesn’t
-assume that. Why not? Why can’t you assume that the servers
+cluster implies that a server can鈥檛 send or receive RPCs to
+the rest of the cluster anymore, but the paper doesn鈥檛
+assume that. Why not? Why can鈥檛 you assume that the servers
 will shut down right away?
 
 A: I think the immediate problem is that the Section 6 protocol doesn't

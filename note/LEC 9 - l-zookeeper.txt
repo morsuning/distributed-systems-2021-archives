@@ -1,4 +1,4 @@
-6.824 2020 Lecture 8: Zookeeper Case Study
+6.824 2021 Lecture 8: Zookeeper Case Study
 
 Reading: "ZooKeeper: wait-free coordination for internet-scale systems", Patrick
 Hunt, Mahadev Konar, Flavio P. Junqueira, Benjamin Reed.  Proceedings of the 2010

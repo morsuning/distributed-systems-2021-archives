@@ -303,6 +303,22 @@ replies?
 A: Yes -- a majority is sufficient. It would be a mistake to wait
 longer, because some peers might have failed and thus not ever reply.
 
+Q: What network does Raft assume?
+
+A: The network is unreliable: it may lose requests and replies and
+delay them.  Raft's RPC library doesn't provide reliability; it is
+best effort (e.g,. it sends a request but the network may drop
+it). The lab's RPC library provides similar semantics: it may lose
+requests, lose replies, delay messages, and entirely disconnect
+particular hosts.
+
+Q: What is the purpose of the votedFor check in the requestVote RPC?
+In particular, if a candidate doesn't retry RPCs? (i.e., if restarts a
+new election it increments term so there won't be a duplicate RPC).
+
+A: Two candidates may start an election roughly at the same time for a
+new term. A follower should vote only for one of them.
+
 Q: Can a leader in Raft ever stop being a leader except by crashing?
 
 A: Yes. If a leader's CPU is slow, or its network connection breaks,
@@ -339,7 +355,7 @@ concurrently. Something like this:
     } ()
   }
 
-Q: What happens if a half (or more) of the servers die? 
+Q: What happens if a half (or more) of the servers die?
 
 A: The service can't make any progress; it will keep trying to elect a
 leader over and over. If/when enough servers come back to life with
@@ -391,3 +407,7 @@ from each replica). Will it respond exactly the same way to each
 request? Will it charge the credit card more than once? If it does do
 the right thing, will it still do the right thing if it crashes and
 reboots at an awkward time?
+
+Q: Why is it called Raft?
+
+A: https://groups.google.com/g/raft-dev/c/95rZqptGpmU

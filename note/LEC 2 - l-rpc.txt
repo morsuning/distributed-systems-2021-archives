@@ -1,4 +1,4 @@
-6.824 2020 Lecture 2: Infrastructure: RPC and threads
+6.824 2021 Lecture 2: Infrastructure: RPC and threads
 
 Today:
   Threads and RPC in Go, with an eye towards the labs
@@ -47,9 +47,9 @@ Is there an alternative to threads?
     and eliminates thread costs (which can be substantial),
     but doesn't get multi-core speedup,
     and is painful to program.
-    
+
 Threading challenges:
-  shared data 
+  shared data
     e.g. what if two threads do n = n + 1 at the same time?
       or one thread reads while another increments?
     this is a "race" -- and is usually a bug
@@ -80,7 +80,7 @@ Crawler challenges
   Fetch each URL only *once*
     avoid wasting network bandwidth
     be nice to remote servers
-    => Need to remember which URLs visited 
+    => Need to remember which URLs visited
   Know when finished
 
 We'll look at two styles of solution [crawler.go on schedule page]
@@ -215,7 +215,7 @@ Go example: kv.go on schedule page
     The server's Get() and Put() handlers
       Must lock, since RPC library creates a new goroutine for each request
       read args; modify reply
- 
+
 A few details:
   Binding: how does client know what server computer to talk to?
     For Go's RPC, server name/port is an argument to Dial

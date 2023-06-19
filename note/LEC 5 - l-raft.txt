@@ -1,4 +1,4 @@
-6.824 2020 Lecture 6: Raft (1)
+6.824 2021 Lecture 6: Raft (1)
 
 this lecture
   today: Raft elections and log handling (Lab 2A, 2B)

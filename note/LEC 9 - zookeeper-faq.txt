@@ -242,4 +242,3 @@ Q: Why did the authors choose the name ZooKeeper?
 
 A: The apache zookeeper web site says this: "ZooKeeper: Because
 Coordinating Distributed Systems is a Zoo"
-

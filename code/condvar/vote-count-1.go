@@ -13,7 +13,7 @@ func main() {
 
 	for i := 0; i < 10; i++ {
 		go func() {
-			vote := requestVote()
+			vote := requestVote1()
 			if vote {
 				count++
 			}
@@ -31,7 +31,7 @@ func main() {
 	}
 }
 
-func requestVote() bool {
+func requestVote1() bool {
 	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	return rand.Int()%2 == 0
 }

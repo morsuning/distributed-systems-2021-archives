@@ -1,5 +1,21 @@
 package raft
 
+import (
+	"math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+/*
+实现 Paper 中描述的 Raft 协议
+主要包含四个部分的内容
+1. Raft 协议的选举过程
+2. 向状态机添加新的日志条目功能
+3. 持久化功能，
+4. 快照功能
+*/
+
 //
 // this is an outline of the API that raft must expose to
 // the service (or tester). see comments below for
@@ -19,10 +35,6 @@ package raft
 
 import (
 	"../labrpc"
-	"math/rand"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 // import "bytes"
@@ -182,7 +194,6 @@ func (rf *Raft) Election() {
 
 // RequestVoteArgs
 // example RequestVote RPC arguments structure.
-// NOTE: 字段名称必须以大写字母开头
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
 	Term         int // candidate 任期
@@ -470,18 +481,16 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 // CondInstallSnapshot
-// A service wants to switch to snapshot.  Only do so if Raft hasn't
-// have more recent info since it communicate the snapshot on applyCh.
+// 服务想要切换到快照
+// 仅当 Raft 没有更新的信息时才这样做，因为它在 applyCh 上传达了快照
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
 
 	return true
 }
 
 // Snapshot
-// the service says it has created a snapshot that has
-// all info up to and including index. this means the
-// service no longer needs the log through (and including)
-// that index. Raft should now trim its log as much as possible.
+// 该服务表示，它已经创建了一个快照，其中包含所有信息，包括索引。
+// 这意味着服务不再需要该索引的日志（包括该索引）。Raft现在应该尽可能地修剪其日志。
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 

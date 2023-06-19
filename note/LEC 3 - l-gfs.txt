@@ -1,4 +1,4 @@
-6.824 2020 Lecture 3: GFS
+6.824 2021 Lecture 3: GFS
 
 The Google File System
 Sanjay Ghemawat, Howard Gobioff, and Shun-Tak Leung

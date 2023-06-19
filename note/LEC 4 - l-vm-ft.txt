@@ -1,4 +1,4 @@
-6.824 2020 Lecture 4: Primary/Backup Replication
+6.824 2021 Lecture 4: Primary/Backup Replication
 
 Today
   Primary/Backup Replication for Fault Tolerance
@@ -309,4 +309,3 @@ http://www.wooditwork.com/2014/08/26/whats-new-vsphere-6-0-fault-tolerance/
 http://www-mount.ece.umn.edu/~jjyi/MoBS/2007/program/01C-Xu.pdf
 
 http://web.eecs.umich.edu/~nsatish/abstracts/ASPLOS-10-Respec.html
-

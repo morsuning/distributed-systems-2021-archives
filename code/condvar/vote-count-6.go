@@ -10,7 +10,7 @@ func main() {
 	ch := make(chan bool)
 	for i := 0; i < 10; i++ {
 		go func() {
-			ch <- requestVote()
+			ch <- requestVote6()
 		}()
 	}
 	for i := 0; i < 10; i++ {
@@ -26,7 +26,7 @@ func main() {
 	}
 }
 
-func requestVote() bool {
+func requestVote6() bool {
 	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	return rand.Int()%2 == 0
 }

@@ -11,7 +11,7 @@ func main() {
 	ch := make(chan bool)
 	for i := 0; i < 10; i++ {
 		go func() {
-			ch <- requestVote()
+			ch <- requestVote5()
 		}()
 	}
 	for count < 5 && finished < 10 {
@@ -29,7 +29,7 @@ func main() {
 	}
 }
 
-func requestVote() bool {
+func requestVote5() bool {
 	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	return rand.Int()%2 == 0
 }

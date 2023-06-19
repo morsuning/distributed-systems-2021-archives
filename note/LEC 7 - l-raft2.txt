@@ -1,4 +1,4 @@
-6.824 2020 Lecture 7: Raft (2)
+6.824 2021 Lecture 7: Raft (2)
 
 *** topic: the Raft log (Lab 2B)
 

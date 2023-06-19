@@ -15,7 +15,7 @@ func main() {
 
 	for i := 0; i < 10; i++ {
 		go func() {
-			vote := requestVote()
+			vote := requestVote4()
 			mu.Lock()
 			defer mu.Unlock()
 			if vote {
@@ -42,7 +42,7 @@ func main() {
 	mu.Unlock()
 }
 
-func requestVote() bool {
+func requestVote4() bool {
 	time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
 	return rand.Int()%2 == 0
 }
