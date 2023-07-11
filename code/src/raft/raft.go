@@ -7,14 +7,19 @@ import (
 	"time"
 )
 
-/*
-实现 Paper 中描述的 Raft 协议
-主要包含四个部分的内容
-1. Raft 协议的选举过程
-2. 向状态机添加新的日志条目功能
-3. 持久化功能，
-4. 快照功能
-*/
+import (
+	"../labrpc"
+)
+
+// import "bytes"
+// import "../labgob"
+
+// 实现 Paper 中描述的 Raft 协议
+// 主要包含四个部分的内容
+// 1. Raft 协议的选举过程
+// 2. 向状态机添加新的日志条目功能
+// 3. 持久化功能
+// 4. 快照功能
 
 //
 // this is an outline of the API that raft must expose to
@@ -32,13 +37,6 @@ import (
 //   should send an ApplyMsg to the service (or tester)
 //   in the same server.
 //
-
-import (
-	"../labrpc"
-)
-
-// import "bytes"
-// import "../labgob"
 
 type Stat int
 
