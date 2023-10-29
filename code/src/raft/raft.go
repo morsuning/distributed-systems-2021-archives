@@ -104,11 +104,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.electionTimer = time.NewTimer(time.Duration(rand.Intn(500-350)+350) * time.Millisecond)
 	rf.heartbeatTicker = time.NewTicker(100 * time.Millisecond)
 
-	// initialize from state persisted before a crash
+	// 从崩溃前保留的状态初始化
 	rf.readPersist(persister.ReadRaftState())
 
 	go rf.ticker()
-	DPrintf("[%d] Initialized", rf.me)
+	DebugPrintf("[%d] Initialized", rf.me)
 	return rf
 }
 
@@ -142,23 +142,24 @@ func (rf *Raft) ticker() {
 			rf.mu.Unlock()
 			if state == Leader {
 				rf.sendAppendEntries()
-				DPrintf("[%d] Leader are sending appendEntries", rf.me)
+				DebugPrintf("[%d] Leader are sending appendEntries", rf.me)
 			}
 		}
 	}
 }
 
 func (rf *Raft) Election() {
+	// 参与选举
 	rf.mu.Lock()
 	rf.state = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
-	DPrintf("[%d] Attempting an election at term %d", rf.me, rf.currentTerm)
+	DebugPrintf("[%d] Attempting an election at term %d", rf.me, rf.currentTerm)
 	term := rf.currentTerm
 	voteReceived := 1
 	finished := false
 	rf.mu.Unlock()
-	// ↑参与选举的代码和实际处理投票的代码↓
+	// 实际处理投票
 	for server := range rf.peers {
 		if server != rf.me {
 			go func(server int) {
@@ -168,7 +169,7 @@ func (rf *Raft) Election() {
 				}
 				rf.mu.Lock()
 				voteReceived++
-				DPrintf("[%d] Got vote from %d, current received votes: %d", rf.me, server, voteReceived)
+				DebugPrintf("[%d] Got vote from %d, current received votes: %d", rf.me, server, voteReceived)
 				if finished || voteReceived <= len(rf.peers)>>1 {
 					rf.mu.Unlock()
 					return
@@ -180,7 +181,7 @@ func (rf *Raft) Election() {
 				if rf.state != Candidate || rf.currentTerm != term {
 					return
 				}
-				DPrintf("[%d] Vote is enough, now becomeing leader (currentTerm=%d, state=%d)", rf.me, rf.currentTerm, rf.state)
+				DebugPrintf("[%d] Vote is enough, now becomeing leader (currentTerm=%d, state=%d)", rf.me, rf.currentTerm, rf.state)
 				rf.state = Leader
 				rf.resetElectionTimer()
 				rf.mu.Unlock()
@@ -209,10 +210,11 @@ type RequestVoteReply struct {
 	VoteGranted bool // true 意味着该 candidate 收到选票
 }
 
-// RequestVote 准备参数或处理响应时需要用到锁，等待响应时不应持有锁，否则此时服务将处于不可用状态
+// RequestVote
+// Note: 准备参数或处理响应时需要用到锁，等待响应时不应持有锁，否则此时服务将处于不可用状态
 // 返回是否成功得到选票
 func (rf *Raft) RequestVote(server int, term int) bool {
-	// DPrintf("[%d] Sending request vote to %d", rf.me, server)
+	// DebugPrintf("[%d] Sending request vote to %d", rf.me, server)
 	lastLogTerm := 0
 	if len(rf.logs) > 0 {
 		lastLogTerm = rf.logs[len(rf.logs)-1].Term
@@ -226,7 +228,7 @@ func (rf *Raft) RequestVote(server int, term int) bool {
 	reply := RequestVoteReply{}
 	// 不应在 RPC 调用期间持有锁，不然无法相应 RPC 请求
 	ok := rf.sendRequestVote(server, &args, &reply)
-	// DPrintf("[%d] Finish sending request vote to %d", rf.me, server)
+	// DebugPrintf("[%d] Finish sending request vote to %d", rf.me, server)
 	if !ok {
 		return false
 	}
@@ -248,31 +250,30 @@ func (rf *Raft) RequestVote(server int, term int) bool {
 
 // RequestVoteHandle 传入 RPC handler
 // 候选人在选举期间发起请求投票
-// 如果投票人自己的日志比候选人的日志更新，则投票人拒绝投票。
 func (rf *Raft) RequestVoteHandle(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	// DPrintf("[%d] Received request vote from %d", rf.me, args.CandidateId)
+	// DebugPrintf("[%d] Received request vote from %d", rf.me, args.CandidateId)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	// DPrintf()("[%d] Handling request vote from %d", rf.me, args.CandidateId)
+	// DebugPrintf()("[%d] Handling request vote from %d", rf.me, args.CandidateId)
 	reply.VoteGranted = false
-	// 回复中是任期自己当前任期
+	// 回复中任期是自己当前任期
 	reply.Term = rf.currentTerm
 	// 请求投票者比自己任期小，将不给它投
 	if args.Term < rf.currentTerm {
 		return
-		// 请求投票者任期和自己相同
 	}
 	// 请求投票者任期大于自己
 	if args.Term > rf.currentTerm {
 		rf.state = Follower
-		DPrintf("[%d] Become a Follower", rf.me)
+		DebugPrintf("[%d] Become a Follower", rf.me)
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		reply.VoteGranted = true
-		DPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
+		DebugPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
 		return
 	}
+	// 请求投票者任期和自己相同
 	if args.Term == rf.currentTerm {
 		if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 			lastLogTerm := 0
@@ -283,16 +284,17 @@ func (rf *Raft) RequestVoteHandle(args *RequestVoteArgs, reply *RequestVoteReply
 			if args.LastLogTerm > lastLogTerm {
 				reply.VoteGranted = true
 				rf.votedFor = args.CandidateId
-				DPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
+				DebugPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
 				return
 			}
 			// 日志和自己一样
 			if args.LastLogTerm == lastLogTerm && len(rf.logs) <= args.LastLogIndex {
 				reply.VoteGranted = true
 				rf.votedFor = args.CandidateId
-				DPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
+				DebugPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
 				return
 			}
+			// 如果投票人自己的日志比候选人的日志更新，则投票人拒绝投票
 		}
 	}
 }
@@ -352,9 +354,9 @@ func (rf *Raft) sendAppendEntries() {
 		go func(server int) {
 			if server != rf.me {
 				ok := rf.peers[server].Call("Raft.AppendEntries", &args, &reply)
-				DPrintf("[%d] Sending the AppendEntries to %d", rf.me, server)
+				DebugPrintf("[%d] Sending the AppendEntries to %d", rf.me, server)
 				if !ok {
-					DPrintf("[%d] Sending the AppendEntry failed", rf.me)
+					DebugPrintf("[%d] Sending the AppendEntry failed", rf.me)
 				}
 				// TODO 处理 Reply
 			}
@@ -371,9 +373,9 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	} else {
 		reply.Success = true
 		rf.resetElectionTimer()
-		DPrintf("[%d] Received heartbeat from %d", rf.me, args.LeaderId)
+		DebugPrintf("[%d] Received heartbeat from %d", rf.me, args.LeaderId)
 		rf.state = Follower
-		// DPrintf("[%d] Become a Follower", rf.me)
+		// DebugPrintf("[%d] Become a Follower", rf.me)
 		rf.currentTerm = args.Term
 	}
 }
@@ -384,7 +386,7 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 // 如果这个服务器不是领导者，返回 false
 // 否则启动共识并立即返回。不能保证这命令将永远提交到 Raft 日志
 // 因为领导者可能会失败或输掉选举。即使 Raft 实例已被杀死，这个函数应该优雅地返回
-// @return 第一个返回值是命令出现的索引，如果它曾经提交过。
+// @return 第一个返回值是命令出现的索引，如果它曾经提交过
 // 第二个返回值是当前任期
 // 如果此服务器是 leader，则第三个返回值为 true
 func (rf *Raft) Start(command interface{}) (int, int, bool) {

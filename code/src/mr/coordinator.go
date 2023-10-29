@@ -17,8 +17,8 @@ const (
 	ReducePhase   = "Reduce"
 	FinishedPhase = "Finished"
 
-	MaxRequestWaitingTime = time.Duration(3 * time.Second)
-	MaxTaskWaitingTime    = time.Duration(10 * time.Second)
+	MaxRequestWaitingTime = 3 * time.Second
+	MaxTaskWaitingTime    = 10 * time.Second
 
 	TempFilePath = ""
 
@@ -34,7 +34,7 @@ type Task struct {
 
 // Coordinator 管理和调度任务，包括划分任务，管理任务状态
 // 同时 Coordinator 需要知道 Worker 的状态
-// 队列机制使用 chanal 实现
+// 队列机制使用 channel 实现
 // 任务包括 2 阶段，Map 和 Reduce，先 Map 后 Reduce
 type Coordinator struct {
 	// 总 Map 和 Reduce 任务数
@@ -117,7 +117,7 @@ func (m *Coordinator) execPhase(phase string, taskQuantity int) {
 		go func(task Task) {
 			log.Printf("Task Added: Task(%v, %v)", task.TaskType, task.Id)
 			// 布置任务
-			// Woker 未接收到任务前阻塞 TODO 可以将 taskCh 改为带缓冲的 channel 不用启动多个 goroutine
+			// Worker 未接收到任务前阻塞 TODO 可以将 taskCh 改为带缓冲的 channel 不用启动多个 goroutine
 			m.taskCh <- task
 		}(Task{TaskType: phase, Id: i})
 	}
@@ -196,9 +196,9 @@ func (m *Coordinator) server() {
 	rpc.Register(m)
 	rpc.HandleHTTP()
 	//l, e := net.Listen("tcp", ":1234")
-	sockname := coordinatorSock()
-	os.Remove(sockname)
-	l, e := net.Listen("unix", sockname)
+	sockName := coordinatorSock()
+	os.Remove(sockName)
+	l, e := net.Listen("unix", sockName)
 	if e != nil {
 		log.Fatal("Listen Error:", e)
 	}
