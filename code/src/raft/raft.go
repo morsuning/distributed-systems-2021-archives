@@ -211,10 +211,10 @@ type RequestVoteReply struct {
 }
 
 // RequestVote
-// Note: 准备参数或处理响应时需要用到锁，等待响应时不应持有锁，否则此时服务将处于不可用状态
+// Note: 准备参数或处理响应时需要用到锁，等待响应时不应持有锁，否则会造成死锁
 // 返回是否成功得到选票
 func (rf *Raft) RequestVote(server int, term int) bool {
-	// DebugPrintf("[%d] Sending request vote to %d", rf.me, server)
+	DebugPrintf("[%d] Sending request vote to %d", rf.me, server)
 	lastLogTerm := 0
 	if len(rf.logs) > 0 {
 		lastLogTerm = rf.logs[len(rf.logs)-1].Term
@@ -226,9 +226,9 @@ func (rf *Raft) RequestVote(server int, term int) bool {
 		LastLogTerm:  lastLogTerm,
 	}
 	reply := RequestVoteReply{}
-	// 不应在 RPC 调用期间持有锁，不然无法相应 RPC 请求
+	// 不应在 RPC 调用期间持有锁，不然无法响应 RPC 请求
 	ok := rf.sendRequestVote(server, &args, &reply)
-	// DebugPrintf("[%d] Finish sending request vote to %d", rf.me, server)
+	DebugPrintf("[%d] Finish sending request vote to %d", rf.me, server)
 	if !ok {
 		return false
 	}
@@ -252,10 +252,10 @@ func (rf *Raft) RequestVote(server int, term int) bool {
 // 候选人在选举期间发起请求投票
 func (rf *Raft) RequestVoteHandle(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	// DebugPrintf("[%d] Received request vote from %d", rf.me, args.CandidateId)
+	DebugPrintf("[%d] Received request vote from %d", rf.me, args.CandidateId)
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	// DebugPrintf()("[%d] Handling request vote from %d", rf.me, args.CandidateId)
+	DebugPrintf("[%d] Handling request vote from %d", rf.me, args.CandidateId)
 	reply.VoteGranted = false
 	// 回复中任期是自己当前任期
 	reply.Term = rf.currentTerm
@@ -375,7 +375,7 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 		rf.resetElectionTimer()
 		DebugPrintf("[%d] Received heartbeat from %d", rf.me, args.LeaderId)
 		rf.state = Follower
-		// DebugPrintf("[%d] Become a Follower", rf.me)
+		DebugPrintf("[%d] Become a Follower", rf.me)
 		rf.currentTerm = args.Term
 	}
 }

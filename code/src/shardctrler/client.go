@@ -15,8 +15,8 @@ type Clerk struct {
 }
 
 func nrand() int64 {
-	max := big.NewInt(int64(1) << 62)
-	bigx, _ := rand.Int(rand.Reader, max)
+	maxVal := big.NewInt(int64(1) << 62)
+	bigx, _ := rand.Int(rand.Reader, maxVal)
 	x := bigx.Int64()
 	return x
 }

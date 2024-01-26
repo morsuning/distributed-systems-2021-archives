@@ -5,9 +5,8 @@ import "log"
 // Debug Debugging
 const Debug = false
 
-func DebugPrintf(format string, a ...interface{}) (n int, err error) {
+func DebugPrintf(format string, a ...interface{}) {
 	if Debug {
 		log.Printf(format, a...)
 	}
-	return
 }
