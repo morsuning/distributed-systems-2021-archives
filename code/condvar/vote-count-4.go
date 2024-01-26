@@ -6,7 +6,7 @@ import "math/rand"
 
 // 使用 Condition，等待共享数据中某个属性或变量变成 true，类似 Java ReentrantLock 绑定 Condition
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	count := 0
 	finished := 0

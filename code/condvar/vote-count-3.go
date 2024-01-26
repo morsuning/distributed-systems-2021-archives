@@ -6,7 +6,7 @@ import "math/rand"
 
 // 在 2 的基础上减少 CPU 占用
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	count := 0
 	finished := 0

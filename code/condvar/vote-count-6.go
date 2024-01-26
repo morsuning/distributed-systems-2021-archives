@@ -4,7 +4,7 @@ import "time"
 import "math/rand"
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	count := 0
 	ch := make(chan bool)
