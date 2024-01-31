@@ -1,4 +1,4 @@
-# MIT 6.824 Distributed Systems
+# MIT 6.824 Distributed Systems Spring 2021 Archives
 
 MIT 6.824 分布式系统课程资料，包括课堂笔记，论文，考试，自己完成的实验代码和笔记
 
