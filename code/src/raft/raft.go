@@ -41,7 +41,7 @@ import (
 type Stat int
 
 const (
-	Leader Stat = iota
+	Leader Stat = iota + 1
 	Follower
 	Candidate
 )
@@ -60,7 +60,7 @@ type Raft struct {
 	state Stat // 当前状态
 
 	currentTerm int // 当前任期
-	votedFor    int // 投与
+	votedFor    int // 投与的节点索引
 
 	logs []LogEntry
 
@@ -71,12 +71,11 @@ type Raft struct {
 	nextIndex  []int // 对于每个服务器，要发送到该服务器的下一个日志条目的索引, 初始化为领导者最后一个日志索引 + 1
 	matchIndex []int // 对于每个服务器，已知在服务器上复制的最高日志条目的索引（初始化为 0，单调增加）
 
-	electionTimer   *time.Timer
-	heartbeatTicker *time.Ticker
+	electionTimer   *time.Timer  // 选举倒计时器
+	heartbeatTicker *time.Ticker // 心跳检查ticker，定时发送信号
 }
 
 // Make 创建 Raft 服务器实例
-// @para
 // 所有 Raft 服务器的端口在数组 peer[] 中，所有服务中 peer 数组的顺序是一致的
 // 本服务端口是 peer[me]
 // persister 用来存储服务器自身的状态，同时初始化最近接收的状态
@@ -84,43 +83,36 @@ type Raft struct {
 // Note: Make()必须快速返回，需要用 goroutines 运行长时任务
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
-	rf := &Raft{}
-	rf.peers = peers
-	rf.persister = persister
-	rf.me = me
-
 	// Your initialization code here (2A, 2B, 2C)
-	rf.state = Follower
-
-	rf.currentTerm = 0
-	rf.votedFor = -1 // 即 voteFor 为 null
-	rf.commitIndex = 0
-	rf.lastApplied = 0
-
-	rf.nextIndex = make([]int, len(peers))
-	rf.matchIndex = make([]int, len(peers))
-	rf.logs = []LogEntry{}
-
-	rf.electionTimer = time.NewTimer(time.Duration(rand.Intn(500-350)+350) * time.Millisecond)
-	rf.heartbeatTicker = time.NewTicker(100 * time.Millisecond)
+	rf := &Raft{
+		peers:           peers,
+		persister:       persister,
+		me:              me,
+		dead:            0,
+		state:           Follower,
+		votedFor:        -1, // 即 voteFor 为 null
+		logs:            []LogEntry{},
+		commitIndex:     0,
+		lastApplied:     0,
+		nextIndex:       make([]int, len(peers)),
+		matchIndex:      make([]int, len(peers)),
+		electionTimer:   time.NewTimer(time.Duration(rand.Intn(500-350)+350) * time.Millisecond),
+		heartbeatTicker: time.NewTicker(100 * time.Millisecond),
+	}
 
 	// 从崩溃前保留的状态初始化
 	rf.readPersist(persister.ReadRaftState())
 
+	// TODO 稳定性
 	go rf.ticker()
+
 	DebugPrintf("[%d] Initialized", rf.me)
 	return rf
 }
 
-func (rf *Raft) resetElectionTimer() {
-	if rf.electionTimer.Stop() {
-		select {
-		case <-rf.electionTimer.C:
-		default:
-		}
-	}
-	rf.electionTimer.Reset(time.Duration(rand.Intn(500-400)+400) * time.Millisecond)
-}
+// ---
+// 选举过程
+// --
 
 // ticker 如果最近没有收到 heartbeat 开始新的选举
 func (rf *Raft) ticker() {
@@ -135,7 +127,7 @@ func (rf *Raft) ticker() {
 			if state != Leader {
 				go rf.Election()
 			}
-			// 100 毫秒向全体发送一次 heartbeat
+			// Leader 每 100 毫秒向全体发送一次 heartbeat
 		case <-rf.heartbeatTicker.C:
 			rf.mu.Lock()
 			state := rf.state
@@ -146,6 +138,17 @@ func (rf *Raft) ticker() {
 			}
 		}
 	}
+}
+
+// resetElectionTimer 重置选举倒计时
+func (rf *Raft) resetElectionTimer() {
+	if rf.electionTimer.Stop() {
+		select {
+		case <-rf.electionTimer.C:
+		default:
+		}
+	}
+	rf.electionTimer.Reset(time.Duration(rand.Intn(500-400)+400) * time.Millisecond)
 }
 
 func (rf *Raft) Election() {
@@ -159,7 +162,7 @@ func (rf *Raft) Election() {
 	voteReceived := 1
 	finished := false
 	rf.mu.Unlock()
-	// 实际处理投票
+	// 处理每个节点的投票
 	for server := range rf.peers {
 		if server != rf.me {
 			go func(server int) {
@@ -206,15 +209,16 @@ type RequestVoteArgs struct {
 // NOTE: 字段名称必须以大写字母开头
 type RequestVoteReply struct {
 	// Your data here (2A).
-	Term        int
-	VoteGranted bool // true 意味着该 candidate 收到选票
+	Term        int  // 处理投票请求节点的任期
+	VoteGranted bool // true 意味着投给请求者
 }
 
-// RequestVote
+// RequestVote 请求投票
 // Note: 准备参数或处理响应时需要用到锁，等待响应时不应持有锁，否则会造成死锁
 // 返回是否成功得到选票
 func (rf *Raft) RequestVote(server int, term int) bool {
 	DebugPrintf("[%d] Sending request vote to %d", rf.me, server)
+	// 最新log的任期
 	lastLogTerm := 0
 	if len(rf.logs) > 0 {
 		lastLogTerm = rf.logs[len(rf.logs)-1].Term
@@ -222,7 +226,7 @@ func (rf *Raft) RequestVote(server int, term int) bool {
 	args := RequestVoteArgs{
 		Term:         term,
 		CandidateId:  rf.me,
-		LastLogIndex: len(rf.logs),
+		LastLogIndex: len(rf.logs) - 1,
 		LastLogTerm:  lastLogTerm,
 	}
 	reply := RequestVoteReply{}
@@ -249,7 +253,7 @@ func (rf *Raft) RequestVote(server int, term int) bool {
 }
 
 // RequestVoteHandle 传入 RPC handler
-// 候选人在选举期间发起请求投票
+// 处理投票请求
 func (rf *Raft) RequestVoteHandle(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 	DebugPrintf("[%d] Received request vote from %d", rf.me, args.CandidateId)
@@ -268,7 +272,7 @@ func (rf *Raft) RequestVoteHandle(args *RequestVoteArgs, reply *RequestVoteReply
 		rf.state = Follower
 		DebugPrintf("[%d] Become a Follower", rf.me)
 		rf.currentTerm = args.Term
-		rf.votedFor = -1
+		rf.votedFor = args.CandidateId
 		reply.VoteGranted = true
 		DebugPrintf("[%d] Granting vote for %d on its term %d", rf.me, args.CandidateId, args.Term)
 		return
@@ -280,7 +284,7 @@ func (rf *Raft) RequestVoteHandle(args *RequestVoteArgs, reply *RequestVoteReply
 			if len(rf.logs) > 0 {
 				lastLogTerm = rf.logs[len(rf.logs)-1].Term
 			}
-			// 请求投票者日志最后任期比自己新
+			// 请求投票者最新日志任期比自己新
 			if args.LastLogTerm > lastLogTerm {
 				reply.VoteGranted = true
 				rf.votedFor = args.CandidateId
@@ -317,8 +321,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
+// ---
+// 更新日志过程
+// --
+
 type LogEntry struct {
-	Command interface{}
+	Command any
 	Term    int
 }
 
@@ -327,8 +335,8 @@ type AppendEntries struct {
 }
 
 type AppendEntryArgs struct {
-	Term              int // Leader 任期
-	LeaderId          int
+	Term              int        // Leader 任期
+	LeaderId          int        // Leader 索引
 	PrevLogIndex      int        // 紧接在新条目之前的日志条目的索引
 	PrevLogTerm       int        // prevLogIndex 的任期
 	Entries           []LogEntry // 要存储的日志条目（是心跳时为空；为了提高效率可能会发送多个）
@@ -340,6 +348,7 @@ type AppendEntryReply struct {
 	Success bool // 如果 Follow 包含与 prevLogIndex 和 prevLogTerm 匹配的条目为真
 }
 
+// 发送追加日志请求
 func (rf *Raft) sendAppendEntries() {
 	rf.mu.Lock()
 	args := AppendEntryArgs{
@@ -419,12 +428,12 @@ func (rf *Raft) killed() bool {
 // ApplyMsg 同步使用的类型，每次将新条目提交日志时，每个 Raft peer，应该向服务发送 ApplyMsg （或测试员）
 // 当每个 Raft peer 意识到连续的日志条目已提交，该 peer 应该发送一个 ApplyMsg，经由 applyCh（由 Make()创建的）
 // 将 CommandValid 设置为 true，以表示 ApplyMsg 包含一个新提交的日志条目
-// in Lab 3 you'll want to send other kinds of messages (e.g.,
+// in Lab 2D you'll want to send other kinds of messages (e.g.,
 // snapshots) on the applyCh; at that point you can add fields to
 // ApplyMsg, but set CommandValid to false for these other uses.
 type ApplyMsg struct {
 	CommandValid bool
-	Command      interface{}
+	Command      any
 	CommandIndex int
 
 	SnapshotValid bool

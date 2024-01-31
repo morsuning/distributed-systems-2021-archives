@@ -118,7 +118,7 @@ length.
 
 Q: What are common debugging tools people use for Go?
 
-Q: fmt.Printf()
+A: fmt.Printf()
 
 As far as I know there's not a great debugger for Go, though gdb can be
 made to work:
