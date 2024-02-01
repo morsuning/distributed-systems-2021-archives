@@ -62,7 +62,7 @@ type Raft struct {
 	currentTerm int // 当前任期
 	votedFor    int // 投与的节点索引
 
-	logs []LogEntry
+	logs []LogEntry // 日志条目，每个条目都包含状态机的命令(第一个索引为1)
 
 	commitIndex int // 已知提交的最高日志条目的索引
 	lastApplied int // 应用于状态机的最高日志条目的索引
@@ -112,7 +112,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 // ---
 // 选举过程
-// --
+// ---
 
 // ticker 如果最近没有收到 heartbeat 开始新的选举
 func (rf *Raft) ticker() {
@@ -133,8 +133,8 @@ func (rf *Raft) ticker() {
 			state := rf.state
 			rf.mu.Unlock()
 			if state == Leader {
-				rf.sendAppendEntries()
-				DebugPrintf("[%d] Leader are sending appendEntries", rf.me)
+				rf.sendAppendEntries(nil)
+				DebugPrintf("[%d] Leader are sending heartbeat", rf.me)
 			}
 		}
 	}
@@ -188,7 +188,7 @@ func (rf *Raft) Election() {
 				rf.state = Leader
 				rf.resetElectionTimer()
 				rf.mu.Unlock()
-				rf.sendAppendEntries()
+				rf.sendAppendEntries(nil)
 			}(server)
 		}
 	}
@@ -206,7 +206,6 @@ type RequestVoteArgs struct {
 
 // RequestVoteReply
 // example RequestVote RPC reply structure.
-// NOTE: 字段名称必须以大写字母开头
 type RequestVoteReply struct {
 	// Your data here (2A).
 	Term        int  // 处理投票请求节点的任期
@@ -323,15 +322,11 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 // ---
 // 更新日志过程
-// --
+// ---
 
 type LogEntry struct {
 	Command any
 	Term    int
-}
-
-// AppendEntries 同步
-type AppendEntries struct {
 }
 
 type AppendEntryArgs struct {
@@ -349,7 +344,8 @@ type AppendEntryReply struct {
 }
 
 // 发送追加日志请求
-func (rf *Raft) sendAppendEntries() {
+// TODO 区分发送heartbeat和日志条目
+func (rf *Raft) sendAppendEntries(command any) {
 	rf.mu.Lock()
 	args := AppendEntryArgs{
 		Term:              rf.currentTerm,
@@ -362,31 +358,37 @@ func (rf *Raft) sendAppendEntries() {
 		reply := AppendEntryReply{}
 		go func(server int) {
 			if server != rf.me {
-				ok := rf.peers[server].Call("Raft.AppendEntries", &args, &reply)
-				DebugPrintf("[%d] Sending the AppendEntries to %d", rf.me, server)
+				ok := rf.peers[server].Call("Raft.AppendEntriesHandler", &args, &reply)
+				DebugPrintf("[%d] Sending the AppendEntriesHandler to %d", rf.me, server)
 				if !ok {
 					DebugPrintf("[%d] Sending the AppendEntry failed", rf.me)
 				}
-				// TODO 处理 Reply
+				// TODO 处理 Reply, 追加日志请求失败情况
 			}
 		}(server)
 	}
 }
 
-func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
+// AppendEntriesHandler 处理追加日志条目请求
+func (rf *Raft) AppendEntriesHandler(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Success = false
-	} else {
+		return
+	}
+	// 区分是否为heartbeat的情况
+	if len(args.Entries) == 0 {
 		reply.Success = true
 		rf.resetElectionTimer()
 		DebugPrintf("[%d] Received heartbeat from %d", rf.me, args.LeaderId)
 		rf.state = Follower
-		DebugPrintf("[%d] Become a Follower", rf.me)
 		rf.currentTerm = args.Term
+		return
 	}
+	reply.Success = true
+	DebugPrintf("[%d] Become a Follower", rf.me)
 }
 
 // Start 在新的时刻开始共识同步
@@ -398,13 +400,19 @@ func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 // @return 第一个返回值是命令出现的索引，如果它曾经提交过
 // 第二个返回值是当前任期
 // 如果此服务器是 leader，则第三个返回值为 true
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
+func (rf *Raft) Start(command any) (int, int, bool) {
 	// Your code here (2B).
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	// TODO 区分命令是否被提交过
+	index := rf.commitIndex
+	term := rf.currentTerm
+	isLeader := rf.state == Leader
+	if isLeader {
+		go func(command any) {
+			rf.sendAppendEntries(command)
+		}(command)
+	}
 	return index, term, isLeader
 }
 
