@@ -1,21 +1,25 @@
 package shardkv
 
-import "../shardctrler"
-import "../labrpc"
-import "testing"
-import "os"
+import (
+	"os"
+	"testing"
 
-// import "log"
-import crand "crypto/rand"
-import "math/big"
-import "math/rand"
-import "encoding/base64"
-import "sync"
-import "runtime"
-import "../raft"
-import "strconv"
-import "fmt"
-import "time"
+	"github.com/morsuning/toykv/labrpc"
+	"github.com/morsuning/toykv/shardctrler"
+
+	// import "log"
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"math/rand"
+	"runtime"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/morsuning/toykv/raft"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)

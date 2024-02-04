@@ -5,10 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-)
 
-import (
-	"../labrpc"
+	"github.com/morsuning/toykv/labrpc"
 )
 
 // import "bytes"

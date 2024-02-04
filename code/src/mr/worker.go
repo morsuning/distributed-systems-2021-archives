@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
@@ -30,7 +30,6 @@ type KeyValue struct {
 // 通过 key 决定给那个 Reduce 任务执行
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
-//
 func ihash(key string) int {
 	h := fnv.New32a()
 	if _, err := h.Write([]byte(key)); err != nil {
@@ -83,11 +82,9 @@ func finishTask(task Task) *FinishTaskReply {
 	return &reply
 }
 
-//
 // send an RPC request to the master, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-//
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
@@ -121,7 +118,7 @@ func MapTask(mapf func(string, string) []KeyValue, task Task, fileName string) {
 	if err != nil {
 		log.Fatalf("Can't open file: %v", fileName)
 	}
-	content, err := ioutil.ReadAll(file)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		log.Fatalf("Can't read file: %v", fileName)
 	}
@@ -140,7 +137,7 @@ func createTempFiles(task Task, kva []KeyValue) map[int]*os.File {
 		wg.Add(1)
 		// task.Id 为已经创建的 map 任务编号，i 为 Reduce 任务编号
 		fileName := "mr-" + strconv.Itoa(task.Id) + strconv.Itoa(i)
-		f, err := ioutil.TempFile(TempFilePath, fileName)
+		f, err := os.CreateTemp(TempFilePath, fileName)
 		if err != nil {
 			log.Fatalf("Create temp file fail: Task(%v, %v)", task.TaskType, task.Id)
 		}
@@ -242,7 +239,7 @@ func readTempFiles(task Task) []KeyValue {
 
 func createTempOutputFile(task Task) *os.File {
 	filename := "mr-out-" + strconv.Itoa(task.Id)
-	f, err := ioutil.TempFile(TempFilePath, filename)
+	f, err := os.CreateTemp(TempFilePath, filename)
 	if err != nil {
 		log.Fatalf("Can't create temp file: %v", filename)
 	}
