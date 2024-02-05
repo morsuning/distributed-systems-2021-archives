@@ -44,6 +44,10 @@ const (
 	Candidate
 )
 
+const (
+	NoneCommand = ""
+)
+
 // Raft A Go object implementing a single Raft peer.
 type Raft struct {
 	mu        sync.Mutex          // 锁定以保护对该对等方状态的共享访问
@@ -89,7 +93,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		dead:            0,
 		state:           Follower,
 		votedFor:        -1, // 即 voteFor 为 null
-		logs:            []LogEntry{},
+		logs:            []LogEntry{LogEntry{Command: NoneCommand}},
 		commitIndex:     0,
 		lastApplied:     0,
 		nextIndex:       make([]int, len(peers)),
@@ -402,16 +406,25 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// Your code here (2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	// TODO 区分命令是否被提交过
-	index := rf.commitIndex
+	index := rf.searchCommand(command)
 	term := rf.currentTerm
 	isLeader := rf.state == Leader
-	if isLeader {
+	if isLeader && index == -1 {
 		go func(command any) {
 			rf.sendAppendEntries(command)
 		}(command)
 	}
 	return index, term, isLeader
+}
+
+// 在当前节点的log中查找是否存在command
+func (rf *Raft) searchCommand(command any) int {
+	for i, v := range rf.logs[1:] {
+		if v.Command == command {
+			return i + 1
+		}
+	}
+	return -1
 }
 
 // Kill
