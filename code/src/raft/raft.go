@@ -93,7 +93,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		dead:            0,
 		state:           Follower,
 		votedFor:        -1, // 即 voteFor 为 null
-		logs:            []LogEntry{LogEntry{Command: NoneCommand}},
+		logs:            []LogEntry{{Command: NoneCommand}},
 		commitIndex:     0,
 		lastApplied:     0,
 		nextIndex:       make([]int, len(peers)),
