@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/morsuning/toykv/mr"
+	"github.com/morsuning/distributed-systems-2021-archives/mr"
 )
 
 func nparallel(phase string) int {

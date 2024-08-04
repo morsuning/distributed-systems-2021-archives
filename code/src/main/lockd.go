@@ -16,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/morsuning/toykv/lockservice"
+	"github.com/morsuning/distributed-systems-2021-archives/lockservice"
 )
 
 func main() {

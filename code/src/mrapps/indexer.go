@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/morsuning/toykv/mr"
+	"github.com/morsuning/distributed-systems-2021-archives/mr"
 )
 
 // The mapping function is called once for each piece of the input.

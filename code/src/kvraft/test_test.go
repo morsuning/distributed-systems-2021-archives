@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/morsuning/toykv/models"
-	"github.com/morsuning/toykv/porcupine"
+	"github.com/morsuning/distributed-systems-2021-archives/models"
+	"github.com/morsuning/distributed-systems-2021-archives/porcupine"
 )
 
 // The tester generously allows solutions to complete elections in one second

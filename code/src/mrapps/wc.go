@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/morsuning/toykv/mr"
+	"github.com/morsuning/distributed-systems-2021-archives/mr"
 )
 
 // The map function is called once for each file of input. The first

@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/morsuning/toykv/pbservice"
+	"github.com/morsuning/distributed-systems-2021-archives/pbservice"
 )
 
 func main() {

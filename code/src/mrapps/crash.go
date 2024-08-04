@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/morsuning/toykv/mr"
+	"github.com/morsuning/distributed-systems-2021-archives/mr"
 )
 
 func maybeCrash() {

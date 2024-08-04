@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/morsuning/toykv/models"
-	"github.com/morsuning/toykv/porcupine"
+	"github.com/morsuning/distributed-systems-2021-archives/models"
+	"github.com/morsuning/distributed-systems-2021-archives/porcupine"
 )
 
 const linearizabilityCheckTimeout = 1 * time.Second

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/morsuning/toykv/pbservice"
+	"github.com/morsuning/distributed-systems-2021-archives/pbservice"
 )
 
 func usage() {

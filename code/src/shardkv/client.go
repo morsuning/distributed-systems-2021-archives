@@ -13,8 +13,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/morsuning/toykv/labrpc"
-	"github.com/morsuning/toykv/shardctrler"
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
+	"github.com/morsuning/distributed-systems-2021-archives/shardctrler"
 )
 
 // which shard is a key in?

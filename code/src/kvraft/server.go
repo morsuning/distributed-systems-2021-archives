@@ -5,9 +5,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/morsuning/toykv/labgob"
-	"github.com/morsuning/toykv/labrpc"
-	"github.com/morsuning/toykv/raft"
+	"github.com/morsuning/distributed-systems-2021-archives/labgob"
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
+	"github.com/morsuning/distributed-systems-2021-archives/raft"
 )
 
 const Debug = false

@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/morsuning/toykv/labrpc"
-	"github.com/morsuning/toykv/shardctrler"
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
+	"github.com/morsuning/distributed-systems-2021-archives/shardctrler"
 
 	// import "log"
 	crand "crypto/rand"
@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/morsuning/toykv/raft"
+	"github.com/morsuning/distributed-systems-2021-archives/raft"
 )
 
 func randstring(n int) string {

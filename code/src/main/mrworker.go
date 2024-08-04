@@ -16,7 +16,7 @@ import (
 	"os"
 	"plugin"
 
-	"github.com/morsuning/toykv/mr"
+	"github.com/morsuning/distributed-systems-2021-archives/mr"
 )
 
 func main() {

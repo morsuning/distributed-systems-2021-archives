@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/morsuning/toykv/diskv"
+	"github.com/morsuning/distributed-systems-2021-archives/diskv"
 )
 
 func usage() {

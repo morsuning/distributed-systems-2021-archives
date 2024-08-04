@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/morsuning/toykv/lockservice"
+	"github.com/morsuning/distributed-systems-2021-archives/lockservice"
 )
 
 func usage() {

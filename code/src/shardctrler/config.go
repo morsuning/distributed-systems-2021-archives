@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/morsuning/toykv/labrpc"
-	"github.com/morsuning/toykv/raft"
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
+	"github.com/morsuning/distributed-systems-2021-archives/raft"
 
 	// import "log"
 	crand "crypto/rand"
