@@ -26,7 +26,7 @@ import (
 //
 // rf = Make(...)
 //   create a new Raft server.
-// rf.Start(command interface{}) (index, term, isleader)
+// rf.Start(command interface{}) (index, term, isLeader)
 //   start agreement on a new log entry
 // rf.GetState() (term, isLeader)
 //   ask a Raft for its current term, and whether it thinks it is leader
@@ -67,9 +67,9 @@ type Raft struct {
 	logs []LogEntry // 日志条目，每个条目都包含状态机的命令(第一个索引为1)
 
 	commitIndex int // 已知提交的最高日志条目的索引
-	lastApplied int // 应用于状态机的最高日志条目的索引
+	lastApplied int // 应用于状态机的最高日志条目的索引 ？？？是否只由leader维护
 
-	// 选举后重新初始化
+	// 选举后重新初始化 TODO 调整这两个参数
 	nextIndex  []int // 对于每个服务器，要发送到该服务器的下一个日志条目的索引, 初始化为领导者最后一个日志索引 + 1
 	matchIndex []int // 对于每个服务器，已知在服务器上复制的最高日志条目的索引（初始化为 0，单调增加）
 
@@ -346,14 +346,19 @@ type AppendEntryReply struct {
 }
 
 // 发送追加日志请求
-// TODO 区分发送heartbeat和日志条目
 func (rf *Raft) sendAppendEntries(command any) {
 	rf.mu.Lock()
 	args := AppendEntryArgs{
-		Term:              rf.currentTerm,
-		LeaderId:          rf.me,
-		Entries:           rf.logs,
-		LeaderCommitIndex: rf.commitIndex,
+		Term:         rf.currentTerm,
+		PrevLogIndex: rf.lastApplied,
+		PrevLogTerm:  rf.logs[rf.lastApplied].Term,
+	}
+	if command != nil {
+		args.Entries = []LogEntry{{Command: command, Term: rf.currentTerm}}
+	}
+	if rf.state == Leader {
+		args.LeaderId = rf.me
+		args.LeaderCommitIndex = rf.lastApplied + 1
 	}
 	rf.mu.Unlock()
 	for server := range rf.peers {
@@ -365,7 +370,7 @@ func (rf *Raft) sendAppendEntries(command any) {
 				if !ok {
 					DebugPrintf("[%d] Sending the AppendEntry failed", rf.me)
 				}
-				// TODO 处理 Reply, 追加日志请求失败情况
+				// TODO Option 处理 Reply, 追加日志请求失败情况，重试3次
 			}
 		}(server)
 	}
@@ -375,12 +380,13 @@ func (rf *Raft) sendAppendEntries(command any) {
 func (rf *Raft) AppendEntriesHandler(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	// 判断任期
 	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.Success = false
 		return
 	}
-	// 区分是否为heartbeat的情况
+	// 处理heartbeat
 	if len(args.Entries) == 0 {
 		reply.Success = true
 		rf.resetElectionTimer()
@@ -389,6 +395,10 @@ func (rf *Raft) AppendEntriesHandler(args *AppendEntryArgs, reply *AppendEntryRe
 		rf.currentTerm = args.Term
 		return
 	}
+	// TODO 处理追加日志条目
+	rf.logs = append(rf.logs, args.Entries...)
+	rf.lastApplied = args.LeaderCommitIndex
+
 	reply.Success = true
 	DebugPrintf("[%d] Become a Follower", rf.me)
 }
@@ -407,17 +417,17 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	index := rf.searchCommand(command)
-	term := rf.currentTerm
 	isLeader := rf.state == Leader
 	if isLeader && index == -1 {
 		go func(command any) {
 			rf.sendAppendEntries(command)
 		}(command)
 	}
-	return index, term, isLeader
+	return index, rf.currentTerm, isLeader
 }
 
 // 在当前节点的log中查找是否存在command
+// 存在则返回command index，不存在则返回-1
 func (rf *Raft) searchCommand(command any) int {
 	for i, v := range rf.logs[1:] {
 		if v.Command == command {
@@ -464,14 +474,10 @@ type ApplyMsg struct {
 // GetState 询问 Raft 当前任期，以及当前服务是否是 Leader
 // @return currentTerm 以及此服务器是否认为它是领导者
 func (rf *Raft) GetState() (int, bool) {
-	var term int
-	var isLeader bool
 	// Your code here (2A).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	term = rf.currentTerm
-	isLeader = rf.state == Leader
-	return term, isLeader
+	return rf.currentTerm, rf.state == Leader
 }
 
 // save Raft's persistent state to stable storage,

@@ -1,25 +1,18 @@
-# MIT 6.824 Distributed Systems Spring 2021 Archives
+# Distributed Systems 2021 Archives
 
-MIT 6.824 分布式系统课程资料，包括课堂笔记，论文，考试，自己完成的实验代码和笔记
+MIT 6.824 Distributed Systems 2021 course archives
 
-## 学习建议
+[Course links](http://nil.csail.mit.edu/6.824/2021/)
 
-TODO
+## Project Introduction
 
-https://tanxinyu.work/6-824/
+Contents of each folder:
+- code: All the code for the course experiments realized by myself, the annotation are in Chinese.
+- exam: Midterm and Final Exam Questions and Answers.
+- note: All class handouts and FAQs.
+- paper: All papers required to be read for the course.
 
-https://mit-public-courses-cn-translatio.gitbook.io/mit6-824/
-
-https://www.bilibili.com/video/BV1rp4y1k7nL
-
-## 项目介绍
-
-code 课程实验所有代码，是自己实现的版本
-
-exam 期中和期末考试试题及答案
-
-note 所有课堂讲义和 FAQ
-
-paper 课程所需阅读的所有论文
-
-personal 个人笔记
+## Reference
+1. [Chinese Course Translation](https://mit-public-courses-cn-translatio.gitbook.io/mit6-824/)
+2. [Chinese Videos Translation](https://www.bilibili.com/video/BV1rp4y1k7nL)
+3. [Lab Reference](https://github.com/OneSizeFitsQuorum/MIT6.824-2021)(Please read it after completing all labs)
