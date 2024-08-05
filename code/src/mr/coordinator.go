@@ -75,8 +75,8 @@ func (m *Coordinator) FinishTaskHandler(args Args, reply *FinishTaskReply) error
 }
 
 func (m *Coordinator) getTask() Task {
-	// --- 加锁？
 	m.phaseLock.Lock()
+	// 任务全部完成
 	if m.taskFinished == int64(m.taskQuantity) {
 		if m.phase == MapPhase {
 			log.Printf("Map Phase have finshed, Task Total: %v", m.taskFinished)
@@ -90,7 +90,6 @@ func (m *Coordinator) getTask() Task {
 		}
 	}
 	m.phaseLock.Unlock()
-	// ---
 	select {
 	case task := <-m.taskCh:
 		// 重试次数一次
@@ -117,7 +116,7 @@ func (m *Coordinator) execPhase(phase string, taskQuantity int) {
 		go func(task Task) {
 			log.Printf("Task Added: Task(%v, %v)", task.TaskType, task.Id)
 			// 布置任务
-			// Worker 未接收到任务前阻塞 TODO 可以将 taskCh 改为带缓冲的 channel 不用启动多个 goroutine
+			// Worker 未接收到任务前阻塞
 			m.taskCh <- task
 		}(Task{TaskType: phase, Id: i})
 	}
@@ -137,7 +136,6 @@ func (m *Coordinator) traceTask(task Task) {
 		}
 	case <-time.After(MaxTaskWaitingTime):
 		// 超时，重新加入任务队列
-		// TODO 思考：如果又收到了结果
 		m.taskCh <- task
 		log.Printf("Task Timeout: Task(%v, %v), retry...", task.TaskType, task.Id)
 	}
@@ -156,8 +154,7 @@ func (m *Coordinator) Done() bool {
 func (m *Coordinator) getPhase() string {
 	m.phaseLock.Lock()
 	defer m.phaseLock.Unlock()
-	phase := m.phase
-	return phase
+	return m.phase
 }
 
 // 注意 Worker 如果没有在合理的时间内完成任务，则向其他工作者提供相同任务

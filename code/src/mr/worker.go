@@ -15,7 +15,7 @@ import (
 )
 
 // map 阶段应该将 Map 任务生成的中间件划分到 n 个 Reduce 中
-// n 应该作为参数传递给 makemaster
+// n 应该作为参数传递给 makecoordinator
 
 var nReduce int
 var mMap int
@@ -44,8 +44,7 @@ func ihash(key string) int {
 // 读文件并运行任务 - 得到的格式，任务类型和文件位置
 // 使用encoding/json写读中间文件
 // 完成任务通知 Coordinator，任务完成状态和位置
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapFunc func(string, string) []KeyValue, reduceFunc func(string, []string) string) {
 	for {
 		rep := questTask()
 		mMap = rep.MMap
@@ -54,9 +53,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		switch t.TaskType {
 		case MapPhase:
 			f := rep.FileName
-			MapTask(mapf, t, f)
+			MapTask(mapFunc, t, f)
 		case ReducePhase:
-			ReduceTask(reducef, t)
+			ReduceTask(reduceFunc, t)
 		case FinishedPhase:
 			return
 		default:
@@ -68,9 +67,8 @@ func Worker(mapf func(string, string) []KeyValue,
 }
 
 func questTask() *GetTaskReply {
-	args := Args{}
 	reply := GetTaskReply{}
-	call("Coordinator.GetTaskHandler", &args, &reply)
+	call("Coordinator.GetTaskHandler", &Args{}, &reply)
 	log.Printf("Get Task From Coordinator: (%v, %d)", reply.Task.TaskType, reply.Task.Id)
 	return &reply
 }
@@ -82,13 +80,13 @@ func finishTask(task Task) *FinishTaskReply {
 	return &reply
 }
 
-// send an RPC request to the master, wait for the response.
+// send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-func call(rpcname string, args interface{}, reply interface{}) bool {
+func call(rpcName string, args any, reply any) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	sockname := coordinatorSock()
-	c, err := rpc.DialHTTP("unix", sockname)
+	sockName := coordinatorSock()
+	c, err := rpc.DialHTTP("unix", sockName)
 	if err != nil {
 		log.Fatal("Dialing:", err)
 	}
@@ -98,17 +96,14 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 			log.Fatal("Closing:", err)
 		}
 	}(c)
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
+	if err := c.Call(rpcName, args, reply); err != nil {
+		return false
 	}
-	fmt.Println(err)
-	return false
+	return true
 }
 
 // MapTask 执行 Map 任务返回中间文件位置
-func MapTask(mapf func(string, string) []KeyValue, task Task, fileName string) {
+func MapTask(mapFunc func(string, string) []KeyValue, task Task, fileName string) {
 	file, err := os.Open(FilePath + fileName)
 	defer func(fileName string) {
 		if err := file.Close(); err != nil {
@@ -122,7 +117,7 @@ func MapTask(mapf func(string, string) []KeyValue, task Task, fileName string) {
 	if err != nil {
 		log.Fatalf("Can't read file: %v", fileName)
 	}
-	kva := mapf(fileName, string(content))
+	kva := mapFunc(fileName, string(content))
 	tempFiles := createTempFiles(task, kva)
 	// 只留下有内容的 Temp File
 	if err := renameTempFiles(tempFiles, task.Id); err != nil {
@@ -178,7 +173,7 @@ func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // ReduceTask 执行 Reduce 任务
-func ReduceTask(reducef func(string, []string) string, task Task) {
+func ReduceTask(reduceFunc func(string, []string) string, task Task) {
 	temp := readTempFiles(task)
 	sort.Sort(ByKey(temp))
 	f := createTempOutputFile(task)
@@ -196,7 +191,7 @@ func ReduceTask(reducef func(string, []string) string, task Task) {
 		for k := i; k < j; k++ {
 			values = append(values, temp[k].Value)
 		}
-		res := reducef(temp[i].Key, values)
+		res := reduceFunc(temp[i].Key, values)
 		if _, err := fmt.Fprintf(f, "%v %v\n", temp[i].Key, res); err != nil {
 			log.Fatalf("Can't write file: %v", f.Name())
 		}
