@@ -1,0 +1,3 @@
+Lecture 16
+
+Resilient Distributed Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing What applications can Spark support well that MapReduce/Hadoop cannot support?

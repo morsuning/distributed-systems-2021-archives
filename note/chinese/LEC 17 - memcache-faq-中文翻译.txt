@@ -1,0 +1,115 @@
+6.824 Facebook的Memcache扩展 FAQ
+
+问：论文提到memcached在多种情况下提供陈旧数据。为什么这是可以的？
+
+答：缓存数据通常显示在用户的网页上。如果数据过期了几分之一秒，用户通常不会注意到。
+
+但请注意，更新被发送到MySQL数据库服务器，这些服务器提供强一致性、事务和持久化存储。所以虽然生成网页的读取不是很一致，但更新非常谨慎。
+
+问：论文全是关于确保memcached不缓存陈旧数据。为什么系统既容忍陈旧数据，又花很大力气避免陈旧数据是有意义的？
+
+答：他们避免的最大危险是陈旧数据的长期缓存。提供过期几秒的数据是可以的。提供过期几小时的数据是不可以的。没有论文的机制，由于丢失的删除或乱序更新，可能会出现无限制的memcached陈旧性。
+
+问：他们为什么使用memcached？为什么不直接从"存储集群"中的MySQL数据库服务器读取？
+
+答：MySQL服务器远远不够快，无法处理Facebook web服务器产生的读取量。memcached比MySQL快几个数量级。
+
+问：论文中的"memcached"和"memcache"有什么区别？
+
+答："memcached"指的是软件，你可以在这里找到：
+
+  https://github.com/memcached/memcached
+
+memcached是一个非常简单和非常快速的键/值服务器。它将数据存储在RAM中，没有容错，所以人们用它来缓存（不是用于持久化存储）。
+
+论文使用"memcache"来指Facebook运行memcached的服务器集合。
+
+问：3.2.1中的"陈旧集合"问题是什么，租约如何解决它？
+
+答：以下是"陈旧集合"问题的示例：
+
+1. 客户端C1向memcache请求k；memcache说k不存在。
+2. C1向MySQL请求k，MySQL回复值1。
+   C1此时由于某种原因很慢...
+3. 有人在MySQL中将k的值更新为2。
+4. MySQL/mcsqueal/mcrouter向memcache发送k的无效化，
+   虽然memcache没有缓存k，所以没有什么可无效化的。
+5. C2向memcache请求k；memcache说k不存在。
+6. C2向MySQL请求k，MySQL回复值2。
+7. C2在memcache中安装k=2。
+8. C1在memcache中安装k=1。
+
+现在memcache有k的陈旧版本，它可能永远不会被更新。
+
+论文的租约会以以下方式修复示例：
+
+1. 客户端C1向memcache请求k；memcache说k不存在，
+   并向C1返回租约L1。
+2. C1向MySQL请求k，MySQL回复值1。
+   C1此时由于某种原因很慢...
+3. 有人在MySQL中将k的值更新为2。
+4. MySQL/mcsqueal/mcrouter向memcache发送k的无效化，
+   虽然memcache没有缓存k，所以没有什么可无效化的。
+   但memcache确实使C1的租约L1无效（从有效租约集合中删除L1）。
+5. C2向memcache请求k；memcache说k不存在，
+   并向C2返回租约L2（因为k没有当前租约）。
+6. C2向MySQL请求k，MySQL回复值2。
+7. C2在memcache中安装k=2，提供有效租约L2。
+8. C1在memcache中安装k=1，提供无效租约L1，
+   所以memcache忽略C1。
+
+现在memcache留下缓存正确的k=2。
+
+问：3.2.1中的"雷群效应"问题是什么，租约如何解决它？
+
+答：雷群效应问题：
+
+* 键k非常流行——许多客户端读取它。
+* 通常客户端从memcache读取k，这很快。
+* 但假设有人写入k，导致它在memcache中被无效化。
+* 一段时间内，每个尝试读取k的客户端都会在memcache中未命中。
+* 它们都会向MySQL请求k。
+* MySQL可能因太多同时请求而过载。
+
+论文的租约只允许第一个未命中的客户端向MySQL请求数据来解决这个问题。
+
+问：什么是McRouter？
+
+答：mcrouter的要点是聚合来自许多客户端的memcached RPC，并以大批量发送到memcached服务器。让少量mcrouter服务器与memcached交谈比大量单个客户端更高效。一个原因是每个网络（TCP）连接都有开销；最好每个memcached每个mcrouter有一个TCP连接而不是每个客户端。另一个原因是每个包都有开销（包头空间和中断），所以mcrouter可以将许多客户端请求打包到每个TCP包中是有帮助的。
+
+问：gutter服务器在它们不接管故障服务器时空闲，这不是浪费吗？为什么不将gutter服务器用于普通的memcached服务以及gutter？
+
+答：我认为非gutter memcached服务器通常接近满负载，空闲容量很少。如果一个故障，替换服务器需要或多或少空闲，以处理故障服务器的负载。
+
+问：4.2节的区域池如何减少副本数量？
+
+答：每个区域有多个集群。每个集群有完整缓存。因此给定的数据项可能在每个集群中缓存。如果区域中有N个集群，一个数据项可能有N个不同的缓存副本，每个集群一个。
+
+在区域池中缓存的项目每个区域只缓存一次，而不是N次。
+
+权衡是如果有N个副本，潜在服务能力是N倍高。
+
+问：自这篇论文以来，Facebook进行了什么存储系统工作？
+
+答：这里是一个示例：
+
+https://www.usenix.org/system/files/conference/atc13/atc13-bronson.pdf
+https://www.cs.princeton.edu/~wlloyd/papers/existential-sosp15.pdf
+
+问：为什么不就在MySQL中放入缓存，在那里它可以更好地集成以提供良好的一致性？
+
+答：如果有人可以向MySQL添加透明缓存使其与memcached一样快，那将是极好的。但没有人知道如何做到。MySQL实际上做了相当多的缓存，它仍然比memcached慢得多。大概很多原因是MySQL呈现比memcached戏剧性更强大和复杂的接口（MySQL支持SQL查询，一个接口比memcached的put()/get()/delete()复杂约1000倍）。
+
+问：图11显示Memcache可以提供甚至一天旧的数据。虽然这发生概率很低，它难道不会在使用Memcache的应用程序中造成显著的，也许是灾难性的问题吗？
+
+是的，确实如此。这是FB一直在挣扎的事情，因为它使编写应用程序更具挑战性。这是两篇后续论文的主题（见上面的两个参考）。
+
+这些论文的底线仍然大致相同：不一致的概率太低，他们愿意接受：即使原则上一些用户可能注意到不一致，他们可能不会意识到也不在乎。（他们的目标应用程序不是银行应用程序。）
+
+问：MySQL复制系统如何工作？
+
+见https://dev.mysql.com/doc/refman/8.0/en/replication.html。FB使用基于日志的复制方案作为发布/订阅系统的组件，如"Wormhole：支持地理复制的互联网服务的可靠发布/订阅"，Sharma等人，2015年所述。复制方案的核心是从MySQL的事务日志读取更新并发送到备份，备份将它们应用到其数据。
+
+问："旁路"缓存确切指什么？
+
+缓存坐在旁边而不是在应用程序和存储层之间。如果应用程序在缓存中未命中，应用程序检索数据库记录并更新缓存，而不是缓存来做这件事。

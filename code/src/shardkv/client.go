@@ -1,32 +1,18 @@
 package shardkv
 
-//
-// client code to talk to a sharded key/value service.
-//
-// the client first talks to the shardmaster to find out
-// the assignment of shards (keys) to groups, and then
-// talks to the group that holds the key's shard.
-//
+// 与分片键/值服务交互的客户端代码。
+// 客户端首先与分片控制器通信以获取
+// 分片（键）到各组的分配，然后
+// 再与持有该键所属分片的组通信。
 
-import "../labrpc"
-import "crypto/rand"
-import "math/big"
-import "../shardmaster"
-import "time"
+import (
+	"crypto/rand"
+	"math/big"
+	"time"
 
-//
-// which shard is a key in?
-// please use this function,
-// and please do not change it.
-//
-func key2shard(key string) int {
-	shard := 0
-	if len(key) > 0 {
-		shard = int(key[0])
-	}
-	shard %= shardmaster.NShards
-	return shard
-}
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
+	"github.com/morsuning/distributed-systems-2021-archives/shardctrler"
+)
 
 func nrand() int64 {
 	max := big.NewInt(int64(1) << 62)
@@ -36,102 +22,72 @@ func nrand() int64 {
 }
 
 type Clerk struct {
-	sm       *shardmaster.Clerk
-	config   shardmaster.Config
+	sm       *shardctrler.Clerk
+	config   shardctrler.Config
 	make_end func(string) *labrpc.ClientEnd
 	// You will have to modify this struct.
+	clientId  int64
+	commandId int64
 }
 
-//
-// the tester calls MakeClerk.
-//
-// masters[] is needed to call shardmaster.MakeClerk().
-//
-// make_end(servername) turns a server name from a
-// Config.Groups[gid][i] into a labrpc.ClientEnd on which you can
-// send RPCs.
-//
-func MakeClerk(masters []*labrpc.ClientEnd, make_end func(string) *labrpc.ClientEnd) *Clerk {
+// MakeClerk 测试器会调用 MakeClerk。
+// 调用 shardctrler.MakeClerk() 需要传入 ctrlers[]。
+// make_end(servername) 将来自
+// Config.Groups[gid][i] 的服务器名转换为可用的 labrpc.ClientEnd，
+// 用于发送 RPC。
+func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
-	ck.sm = shardmaster.MakeClerk(masters)
+	ck.sm = shardctrler.MakeClerk(ctrlers)
 	ck.make_end = make_end
 	// You'll have to add code here.
+	ck.clientId = nrand()
+	ck.commandId = 0
 	return ck
 }
 
-//
-// fetch the current value for a key.
-// returns "" if the key does not exist.
-// keeps trying forever in the face of all other errors.
-// You will have to modify this function.
-//
-func (ck *Clerk) Get(key string) string {
-	args := GetArgs{}
-	args.Key = key
-
+func (ck *Clerk) Command(request *CommandRequest) string {
+	request.ClientId, request.CommandId = ck.clientId, ck.commandId
 	for {
-		shard := key2shard(key)
+		shard := key2shard(request.Key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
-			// try each server for the shard.
 			for si := 0; si < len(servers); si++ {
 				srv := ck.make_end(servers[si])
-				var reply GetReply
-				ok := srv.Call("ShardKV.Get", &args, &reply)
-				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-					return reply.Value
+				var response CommandResponse
+				ok := srv.Call("ShardKV.Command", request, &response)
+				if ok && (response.Err == OK || response.Err == ErrNoKey) {
+					ck.commandId++
+					return response.Value
 				}
-				if ok && (reply.Err == ErrWrongGroup) {
+				if ok && (response.Err == ErrWrongGroup) {
 					break
 				}
 				// ... not ok, or ErrWrongLeader
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
-		// ask master for the latest configuration.
+		// ask controler for the latest configuration.
 		ck.config = ck.sm.Query(-1)
 	}
-
-	return ""
 }
 
-//
-// shared by Put and Append.
-// You will have to modify this function.
-//
-func (ck *Clerk) PutAppend(key string, value string, op string) {
-	args := PutAppendArgs{}
-	args.Key = key
-	args.Value = value
-	args.Op = op
+// Get 获取给定键的当前值。
+// 若键不存在，返回空字符串 ""。
+// 在其他错误情况下会持续重试，直至成功。
+// 你需要实现或修改此函数。
+func (ck *Clerk) Get(key string) string {
+	return ck.Command(&CommandRequest{Key: key, Op: OpGet})
+}
 
-
-	for {
-		shard := key2shard(key)
-		gid := ck.config.Shards[shard]
-		if servers, ok := ck.config.Groups[gid]; ok {
-			for si := 0; si < len(servers); si++ {
-				srv := ck.make_end(servers[si])
-				var reply PutAppendReply
-				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
-				if ok && reply.Err == OK {
-					return
-				}
-				if ok && reply.Err == ErrWrongGroup {
-					break
-				}
-				// ... not ok, or ErrWrongLeader
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-		// ask master for the latest configuration.
-		ck.config = ck.sm.Query(-1)
-	}
+// PutAppend 供 Put 和 Append 共用。
+// 你需要实现或修改此函数。
+func (ck *Clerk) PutAppend(key string, value string, op OperationOp) {
+	ck.Command(&CommandRequest{Key: key, Value: value, Op: op})
 }
 
 func (ck *Clerk) Put(key string, value string) {
-	ck.PutAppend(key, value, "Put")
+	ck.PutAppend(key, value, OpPut)
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.PutAppend(key, value, "Append")
+	ck.PutAppend(key, value, OpAppend)
 }

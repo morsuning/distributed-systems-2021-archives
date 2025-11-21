@@ -1,3 +1,5 @@
-lab-code.code-workspace
 .DS_Store
-.idea/
+.idea
+.history
+.vscode
+docs

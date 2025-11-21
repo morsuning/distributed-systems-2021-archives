@@ -23,9 +23,9 @@ package labrpc
 // net.Enable(endname, enabled) -- enable/disable a client.
 // net.Reliable(bool) -- false means drop/delay messages
 //
-// end.Call("Raft.AppendEntries", &args, &reply) -- send an RPC, wait for reply.
+// end.Call("Raft.AppendEntriesHandler", &args, &reply) -- send an RPC, wait for reply.
 // the "Raft" is the name of the server struct to be called.
-// the "AppendEntries" is the name of the method to be called.
+// the "AppendEntriesHandler" is the name of the method to be called.
 // Call() returns true to indicate that the server executed the request
 // and the reply is valid.
 // Call() returns false if the network lost the request or reply
@@ -49,19 +49,22 @@ package labrpc
 //   pass svc to srv.AddService()
 //
 
-import "../labgob"
-import "bytes"
-import "reflect"
-import "sync"
-import "log"
-import "strings"
-import "math/rand"
-import "time"
-import "sync/atomic"
+import (
+	"bytes"
+	"log"
+	"math/rand"
+	"reflect"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/morsuning/distributed-systems-2021-archives/labgob"
+)
 
 type reqMsg struct {
 	endname  interface{} // name of sending ClientEnd
-	svcMeth  string      // e.g. "Raft.AppendEntries"
+	svcMeth  string      // e.g. "Raft.AppendEntriesHandler"
 	argsType reflect.Type
 	args     []byte
 	replyCh  chan replyMsg
@@ -90,7 +93,9 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 
 	qb := new(bytes.Buffer)
 	qe := labgob.NewEncoder(qb)
-	qe.Encode(args)
+	if err := qe.Encode(args); err != nil {
+		panic(err)
+	}
 	req.args = qb.Bytes()
 
 	//
@@ -377,11 +382,9 @@ func (rn *Network) GetTotalBytes() int64 {
 	return x
 }
 
-//
 // a server is a collection of services, all sharing
 // the same rpc dispatcher. so that e.g. both a Raft
 // and a k/v server can listen to the same rpc endpoint.
-//
 type Server struct {
 	mu       sync.Mutex
 	services map[string]*Service
@@ -405,7 +408,7 @@ func (rs *Server) dispatch(req reqMsg) replyMsg {
 
 	rs.count += 1
 
-	// split Raft.AppendEntries into service and method
+	// split Raft.AppendEntriesHandler into service and method
 	dot := strings.LastIndex(req.svcMeth, ".")
 	serviceName := req.svcMeth[:dot]
 	methodName := req.svcMeth[dot+1:]

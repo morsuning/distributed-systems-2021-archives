@@ -1,0 +1,3 @@
+Lecture 6
+
+The lecture today is an Q&A session about the last submitted lab (e.g., lab 1 or lab2A+B). Submit a question about the lab: for example, something you wondered about while doing the lab, something you didn't understand, or just anything.

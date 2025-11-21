@@ -1,0 +1,219 @@
+6.824 2021 第16讲：Spark
+
+弹性分布式数据集：一种用于内存集群计算的容错抽象
+Zaharia等人，NSDI 2012
+
+为什么要学习Spark？
+  广泛用于数据中心计算
+  将MapReduce推广为数据流
+  比MapReduce更好地支持迭代应用
+  成功的研究：ACM博士论文奖
+
+三个主要主题：
+  编程模型
+  执行策略
+  容错
+
+让我们看看PageRank
+  这是来自Spark源代码库的SparkPageRank.scala
+  类似于3.2.2节的代码，但有更多细节
+
+     1      val lines = spark.read.textFile("in").rdd
+     2      val links1 = lines.map{ s =>
+     3        val parts = s.split("\\s+")
+     4        (parts(0), parts(1))
+     5      }
+     6      val links2 = links1.distinct()
+     7      val links3 = links2.groupByKey()
+     8      val links4 = links3.cache()
+     9      var ranks = links4.mapValues(v => 1.0)
+    10
+    11      for (i <- 1 to 10) {
+    12        val jj = links4.join(ranks)
+    13        val contribs = jj.values.flatMap{
+    14          case (urls, rank) =>
+    15            urls.map(url => (url, rank / urls.size))
+    16        }
+    17        ranks = contribs.reduceByKey(_ + _).mapValues(0.15 + 0.85 * _)
+    18      }
+    19
+    20      val output = ranks.collect()
+    21      output.foreach(tup => println(s"${tup._1} has rank:  ${tup._2} ."))
+
+PageRank输入每行一个链接，从大型网络爬取中提取
+  from-url to-url
+  输入是巨大的！
+
+PageRank输出是每个页面的"重要性"
+  基于其他重要页面是否指向它
+  实际上模拟了某人访问每个页面的估计概率
+  用户模型：
+    85%的概率从当前页面点击一个链接
+    15%的概率访问随机页面
+
+PageRank算法
+  迭代的，本质上是模拟多轮用户点击链接
+  排名（概率）逐渐收敛
+  PageRank在MapReduce中会很笨拙和缓慢
+
+我的示例输入——文件"in"：
+  u1 u3
+  u1 u1
+  u2 u3
+  u2 u2
+  u3 u1
+
+我将在Spark中运行PageRank（本地机器，不是集群）：
+  ./bin/run-example SparkPageRank in 10
+  u2 has rank:  0.2610116705534049 .
+  u3 has rank:  0.9999999999999998 .
+  u1 has rank:  1.7389883294465944 .
+
+显然u1是最重要的页面。
+
+让我们在Scala解释器中运行一些PageRank代码
+    ./bin/spark-shell
+
+    val lines = spark.read.textFile("in").rdd
+      -- lines是什么？它包含文件"in"的内容吗？
+    lines.collect()
+      -- lines生成一个字符串列表，输入行每行一个
+      -- 如果我们再次运行lines.collect()，它会重新读取文件"in"
+    val links1 = lines.map{ s => val parts = s.split("\\s+"); (parts(0), parts(1)) }
+    links1.collect()
+      -- map, split, tuple -- 依次作用于每一行
+      -- 将每个字符串"x y"解析为元组("x", "y")
+    val links2 = links1.distinct()
+      -- distinct()排序或哈希将重复项聚集在一起
+    val links3 = links2.groupByKey()
+      -- groupByKey()排序或哈希将每个键的实例聚集在一起
+    val links4 = links3.cache()
+      -- cache() == 持久化在内存中
+    var ranks = links4.mapValues(v => 1.0)
+
+    -- 现在是第一次循环迭代
+    val jj = links4.join(ranks)
+      -- join将每个页面的链接列表和当前排名聚集在一起
+    val contribs = jj.values.flatMap{ case (urls, rank) => urls.map(url => (url, rank / urls.size)) }
+      -- 对于每个链接，"from"页面的排名除以其链接数量
+    ranks = contribs.reduceByKey(_ + _).mapValues(0.15 + 0.85 * _)
+      -- 汇总指向每个页面的链接
+
+    -- 第二次循环迭代
+    val jj2 = links4.join(ranks)
+      -- join()将相等的键聚集在一起；必须排序或哈希
+    val contribs2 = jj2.values.flatMap{ case (urls, rank) => urls.map(url => (url, rank / urls.size)) }
+    ranks = contribs2.reduceByKey(_ + _).mapValues(0.15 + 0.85 * _)
+      -- reduceByKey()将相等的键聚集在一起
+
+    -- 循环等只是创建了一个血统图。
+    -- 它不做任何实际工作。
+
+    val output = ranks.collect()
+      -- collect()是一个动作。
+      -- 它导致整个计算执行！
+    output.foreach(tup => println(s"${tup._1} has rank:  ${tup._2} ."))
+
+直到最后的collect()，这段代码只是创建一个血统图
+  它不处理数据
+
+血统图是什么样的？
+  图3
+  它是转换阶段的图——一个数据流图
+  它是计算的完整配方
+  注意循环被添加到图中——实际上没有循环
+    每次循环迭代都有*新*的ranks/contribs
+
+对于多步计算，这个编程模型比MapReduce更方便
+
+Scala代码在图2的"driver"机器中运行
+  driver构建一个血统图
+  driver编译Java字节码并发送到worker机器
+  driver然后管理执行和数据移动
+
+执行是什么样的？
+  [图表：driver，分区的输入文件，workers]
+  * 输入在HDFS中（类似GFS）
+  * 输入数据文件已经"分区"在多个存储服务器上
+    前1,000,000行在一个分区中，接下来的行在另一个分区中，等等。
+  * 分区比机器多，为了负载平衡
+  * 每个worker机器取一个分区，按顺序应用血统图
+  * 当不同分区的计算独立时（"窄依赖"）：
+    第一次读取后不需要机器间通信
+    worker将一系列转换应用于输入流
+
+这已经比MapReduce更高效
+  数据直接从一个转换转发到下一个
+  MR需要多个Map+Reduce
+    每个之间都有昂贵的存储到GFS，然后重新读取
+
+distinct()、groupByKey()、join()、reduceByKey()呢？
+  这些需要查看*所有*分区的数据，不仅仅是一个
+  因为具有给定键的所有记录必须一起考虑
+  这些是论文中的"宽"依赖（相对于"窄"依赖）
+
+宽依赖是如何实现的？
+  [图表]
+  很像MapReduce中的Map中间输出
+  driver知道宽依赖在哪里
+    例如PageRank中map()和distinct()之间
+    上游转换，下游转换
+  数据必须被"洗牌"到新的分区中
+    例如将给定键的所有数据聚集在一起
+  在上游转换之后：
+    按洗牌标准（通常是某个键）分割输出
+    在内存中排列成桶，每个下游分区一个
+  在下游转换之前：
+    （等待直到上游转换完成——driver管理这个）
+    每个worker从每个上游worker获取它的桶
+    现在数据以不同的方式分区
+  宽依赖是昂贵的！
+    所有数据通过网络移动
+    它是一个屏障——所有worker必须等待直到所有都完成
+
+如果数据被重用怎么办？
+  例如我们PageRank中的links4
+  默认情况下，必须重新计算，例如从输入文件重新读取
+  persist()和cache()导致链接被保存在内存中以供重用
+
+重用持久化数据是相对于MapReduce的另一个巨大优势
+
+Spark可以基于其对整个血统图的视图进行优化
+  流式记录，一次一个，通过窄转换序列
+    提高局部性，对CPU数据缓存有好处
+    避免必须将整个记录分区存储在内存中
+  注意当不需要洗牌时，因为输入已经以相同方式分区
+    例如links4.join(ranks)
+
+容错方面呢？
+  如果一台机器崩溃怎么办？
+  它的内存和计算状态丢失
+  driver在其他机器上重新运行崩溃机器分区的转换
+    通常每台机器负责许多分区
+    所以负载可以分散
+    因此重新计算相当快
+  对于窄依赖，只有丢失的分区需要重新执行
+
+当有宽依赖时故障怎么办？
+  重新计算一个失败分区需要*所有*分区的信息
+  所以*所有*分区可能需要从头开始重新执行！
+    即使它们没有失败
+  Spark支持检查点到HDFS（类似GFS）来处理这个
+    driver只需要从最新检查点沿血统重新计算
+  对于PageRank，也许每10次迭代检查一次ranks
+
+限制？
+  专为批量数据处理设计
+  所有记录以相同方式处理
+  转换是"函数式的"——将输入转换为输出
+    没有就地修改数据的概念
+
+总结
+  Spark相对于MapReduce提高了表达性和性能
+  给框架完整数据流的视图是有帮助的
+    性能优化
+    故障恢复
+  性能的关键是什么？
+    在转换之间将数据保留在内存中，而不是写入GFS然后读取
+    内存中数据的重用（例如PageRank中的链接）
+  Spark非常成功，广泛使用

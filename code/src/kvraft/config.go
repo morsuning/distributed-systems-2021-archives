@@ -1,22 +1,25 @@
 package kvraft
 
-import "../labrpc"
-import "testing"
-import "os"
+import (
+	"os"
+	"testing"
 
-// import "log"
-import crand "crypto/rand"
-import "math/big"
-import "math/rand"
-import "encoding/base64"
-import "sync"
-import "runtime"
-import "../raft"
-import "fmt"
-import "time"
-import "sync/atomic"
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
 
-func randstring(n int) string {
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"math/rand"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/morsuning/distributed-systems-2021-archives/raft"
+)
+
+func randString(n int) string {
 	b := make([]byte, 2*n)
 	crand.Read(b)
 	s := base64.URLEncoding.EncodeToString(b)
@@ -24,14 +27,14 @@ func randstring(n int) string {
 }
 
 func makeSeed() int64 {
-	max := big.NewInt(int64(1) << 62)
-	bigx, _ := crand.Int(crand.Reader, max)
+	maxInt := big.NewInt(int64(1) << 62)
+	bigx, _ := crand.Int(crand.Reader, maxInt)
 	x := bigx.Int64()
 	return x
 }
 
 // Randomize server handles
-func random_handles(kvh []*labrpc.ClientEnd) []*labrpc.ClientEnd {
+func randomHandles(kvh []*labrpc.ClientEnd) []*labrpc.ClientEnd {
 	sa := make([]*labrpc.ClientEnd, len(kvh))
 	copy(sa, kvh)
 	for i := range sa {
@@ -46,21 +49,21 @@ type config struct {
 	t            *testing.T
 	net          *labrpc.Network
 	n            int
-	kvservers    []*KVServer
+	kvServers    []*KVServer
 	saved        []*raft.Persister
-	endnames     [][]string // names of each server's sending ClientEnds
+	endNames     [][]string // names of each server's sending ClientEnds
 	clerks       map[*Clerk][]string
-	nextClientId int
-	maxraftstate int
-	start        time.Time // time at which make_config() was called
+	nextClientID int
+	maxRaftState int
+	start        time.Time // time at which makeConfig() was called
 	// begin()/end() statistics
 	t0    time.Time // time at which test_test.go called cfg.begin()
-	rpcs0 int       // rpcTotal() at start of test
+	rpcS0 int       // rpcTotal() at start of test
 	ops   int32     // number of clerk get/put/append method calls
 }
 
 func (cfg *config) checkTimeout() {
-	// enforce a two minute real-time limit on each test
+	// enforce a two-minute real-time limit on each test
 	if !cfg.t.Failed() && time.Since(cfg.start) > 120*time.Second {
 		cfg.t.Fatal("test took longer than 120 seconds")
 	}
@@ -69,37 +72,37 @@ func (cfg *config) checkTimeout() {
 func (cfg *config) cleanup() {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
-	for i := 0; i < len(cfg.kvservers); i++ {
-		if cfg.kvservers[i] != nil {
-			cfg.kvservers[i].Kill()
+	for i := 0; i < len(cfg.kvServers); i++ {
+		if cfg.kvServers[i] != nil {
+			cfg.kvServers[i].Kill()
 		}
 	}
 	cfg.net.Cleanup()
 	cfg.checkTimeout()
 }
 
-// Maximum log size across all servers
+// LogSize Maximum log size across all servers
 func (cfg *config) LogSize() int {
-	logsize := 0
+	logSize := 0
 	for i := 0; i < cfg.n; i++ {
 		n := cfg.saved[i].RaftStateSize()
-		if n > logsize {
-			logsize = n
+		if n > logSize {
+			logSize = n
 		}
 	}
-	return logsize
+	return logSize
 }
 
-// Maximum snapshot size across all servers
+// SnapshotSize Maximum snapshot size across all servers
 func (cfg *config) SnapshotSize() int {
-	snapshotsize := 0
+	snapShotSize := 0
 	for i := 0; i < cfg.n; i++ {
 		n := cfg.saved[i].SnapshotSize()
-		if n > snapshotsize {
-			snapshotsize = n
+		if n > snapShotSize {
+			snapShotSize = n
 		}
 	}
-	return snapshotsize
+	return snapShotSize
 }
 
 // attach server i to servers listed in to
@@ -109,14 +112,14 @@ func (cfg *config) connectUnlocked(i int, to []int) {
 
 	// outgoing socket files
 	for j := 0; j < len(to); j++ {
-		endname := cfg.endnames[i][to[j]]
-		cfg.net.Enable(endname, true)
+		endName := cfg.endNames[i][to[j]]
+		cfg.net.Enable(endName, true)
 	}
 
 	// incoming socket files
 	for j := 0; j < len(to); j++ {
-		endname := cfg.endnames[to[j]][i]
-		cfg.net.Enable(endname, true)
+		endName := cfg.endNames[to[j]][i]
+		cfg.net.Enable(endName, true)
 	}
 }
 
@@ -133,17 +136,17 @@ func (cfg *config) disconnectUnlocked(i int, from []int) {
 
 	// outgoing socket files
 	for j := 0; j < len(from); j++ {
-		if cfg.endnames[i] != nil {
-			endname := cfg.endnames[i][from[j]]
-			cfg.net.Enable(endname, false)
+		if cfg.endNames[i] != nil {
+			endName := cfg.endNames[i][from[j]]
+			cfg.net.Enable(endName, false)
 		}
 	}
 
 	// incoming socket files
 	for j := 0; j < len(from); j++ {
-		if cfg.endnames[j] != nil {
-			endname := cfg.endnames[from[j]][i]
-			cfg.net.Enable(endname, false)
+		if cfg.endNames[j] != nil {
+			endName := cfg.endNames[from[j]][i]
+			cfg.net.Enable(endName, false)
 		}
 	}
 }
@@ -186,7 +189,7 @@ func (cfg *config) partition(p1 []int, p2 []int) {
 }
 
 // Create a clerk with clerk specific server names.
-// Give it connections to all of the servers, but for
+// Give it connections to all the servers, but for
 // now enable only connections to servers in to[].
 func (cfg *config) makeClient(to []int) *Clerk {
 	cfg.mu.Lock()
@@ -194,16 +197,16 @@ func (cfg *config) makeClient(to []int) *Clerk {
 
 	// a fresh set of ClientEnds.
 	ends := make([]*labrpc.ClientEnd, cfg.n)
-	endnames := make([]string, cfg.n)
+	endNames := make([]string, cfg.n)
 	for j := 0; j < cfg.n; j++ {
-		endnames[j] = randstring(20)
-		ends[j] = cfg.net.MakeEnd(endnames[j])
-		cfg.net.Connect(endnames[j], j)
+		endNames[j] = randString(20)
+		ends[j] = cfg.net.MakeEnd(endNames[j])
+		cfg.net.Connect(endNames[j], j)
 	}
 
-	ck := MakeClerk(random_handles(ends))
-	cfg.clerks[ck] = endnames
-	cfg.nextClientId++
+	ck := MakeClerk(randomHandles(ends))
+	cfg.clerks[ck] = endNames
+	cfg.nextClientID++
 	cfg.ConnectClientUnlocked(ck, to)
 	return ck
 }
@@ -219,12 +222,12 @@ func (cfg *config) deleteClient(ck *Clerk) {
 	delete(cfg.clerks, ck)
 }
 
-// caller should hold cfg.mu
+// ConnectClientUnlocked caller should hold cfg.mu
 func (cfg *config) ConnectClientUnlocked(ck *Clerk, to []int) {
 	// log.Printf("ConnectClient %v to %v\n", ck, to)
-	endnames := cfg.clerks[ck]
+	endNames := cfg.clerks[ck]
 	for j := 0; j < len(to); j++ {
-		s := endnames[to[j]]
+		s := endNames[to[j]]
 		cfg.net.Enable(s, true)
 	}
 }
@@ -235,12 +238,12 @@ func (cfg *config) ConnectClient(ck *Clerk, to []int) {
 	cfg.ConnectClientUnlocked(ck, to)
 }
 
-// caller should hold cfg.mu
+// DisconnectClientUnlocked caller should hold cfg.mu
 func (cfg *config) DisconnectClientUnlocked(ck *Clerk, from []int) {
 	// log.Printf("DisconnectClient %v from %v\n", ck, from)
-	endnames := cfg.clerks[ck]
+	endNames := cfg.clerks[ck]
 	for j := 0; j < len(from); j++ {
-		s := endnames[from[j]]
+		s := endNames[from[j]]
 		cfg.net.Enable(s, false)
 	}
 }
@@ -251,7 +254,7 @@ func (cfg *config) DisconnectClient(ck *Clerk, from []int) {
 	cfg.DisconnectClientUnlocked(ck, from)
 }
 
-// Shutdown a server by isolating it
+// ShutdownServer Shutdown a server by isolating it
 func (cfg *config) ShutdownServer(i int) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
@@ -274,30 +277,30 @@ func (cfg *config) ShutdownServer(i int) {
 		cfg.saved[i] = cfg.saved[i].Copy()
 	}
 
-	kv := cfg.kvservers[i]
+	kv := cfg.kvServers[i]
 	if kv != nil {
 		cfg.mu.Unlock()
 		kv.Kill()
 		cfg.mu.Lock()
-		cfg.kvservers[i] = nil
+		cfg.kvServers[i] = nil
 	}
 }
 
-// If restart servers, first call ShutdownServer
+// StartServer If restart servers, first call ShutdownServer
 func (cfg *config) StartServer(i int) {
 	cfg.mu.Lock()
 
 	// a fresh set of outgoing ClientEnd names.
-	cfg.endnames[i] = make([]string, cfg.n)
+	cfg.endNames[i] = make([]string, cfg.n)
 	for j := 0; j < cfg.n; j++ {
-		cfg.endnames[i][j] = randstring(20)
+		cfg.endNames[i][j] = randString(20)
 	}
 
 	// a fresh set of ClientEnds.
 	ends := make([]*labrpc.ClientEnd, cfg.n)
 	for j := 0; j < cfg.n; j++ {
-		ends[j] = cfg.net.MakeEnd(cfg.endnames[i][j])
-		cfg.net.Connect(cfg.endnames[i][j], j)
+		ends[j] = cfg.net.MakeEnd(cfg.endNames[i][j])
+		cfg.net.Connect(cfg.endNames[i][j], j)
 	}
 
 	// a fresh persister, so old instance doesn't overwrite
@@ -312,10 +315,10 @@ func (cfg *config) StartServer(i int) {
 	}
 	cfg.mu.Unlock()
 
-	cfg.kvservers[i] = StartKVServer(ends, i, cfg.saved[i], cfg.maxraftstate)
+	cfg.kvServers[i] = StartKVServer(ends, i, cfg.saved[i], cfg.maxRaftState)
 
-	kvsvc := labrpc.MakeService(cfg.kvservers[i])
-	rfsvc := labrpc.MakeService(cfg.kvservers[i].rf)
+	kvsvc := labrpc.MakeService(cfg.kvServers[i])
+	rfsvc := labrpc.MakeService(cfg.kvServers[i].rf)
 	srv := labrpc.MakeServer()
 	srv.AddService(kvsvc)
 	srv.AddService(rfsvc)
@@ -327,8 +330,8 @@ func (cfg *config) Leader() (bool, int) {
 	defer cfg.mu.Unlock()
 
 	for i := 0; i < cfg.n; i++ {
-		_, is_leader := cfg.kvservers[i].rf.GetState()
-		if is_leader {
+		_, isLeader := cfg.kvServers[i].rf.GetState()
+		if isLeader {
 			return true, i
 		}
 	}
@@ -336,7 +339,7 @@ func (cfg *config) Leader() (bool, int) {
 }
 
 // Partition servers into 2 groups and put current leader in minority
-func (cfg *config) make_partition() ([]int, []int) {
+func (cfg *config) makePartition() ([]int, []int) {
 	_, l := cfg.Leader()
 	p1 := make([]int, cfg.n/2+1)
 	p2 := make([]int, cfg.n/2)
@@ -355,10 +358,10 @@ func (cfg *config) make_partition() ([]int, []int) {
 	return p1, p2
 }
 
-var ncpu_once sync.Once
+var nCpuOnce sync.Once
 
-func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config {
-	ncpu_once.Do(func() {
+func makeConfig(t *testing.T, n int, unreliable bool, maxraftstate int) *config {
+	nCpuOnce.Do(func() {
 		if runtime.NumCPU() < 2 {
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
 		}
@@ -369,12 +372,12 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 	cfg.t = t
 	cfg.net = labrpc.MakeNetwork()
 	cfg.n = n
-	cfg.kvservers = make([]*KVServer, cfg.n)
+	cfg.kvServers = make([]*KVServer, cfg.n)
 	cfg.saved = make([]*raft.Persister, cfg.n)
-	cfg.endnames = make([][]string, cfg.n)
+	cfg.endNames = make([][]string, cfg.n)
 	cfg.clerks = make(map[*Clerk][]string)
-	cfg.nextClientId = cfg.n + 1000 // client ids start 1000 above the highest serverid
-	cfg.maxraftstate = maxraftstate
+	cfg.nextClientID = cfg.n + 1000 // client ids start 1000 above the highest serverid
+	cfg.maxRaftState = maxraftstate
 	cfg.start = time.Now()
 
 	// create a full set of KV servers.
@@ -399,7 +402,7 @@ func (cfg *config) rpcTotal() int {
 func (cfg *config) begin(description string) {
 	fmt.Printf("%s ...\n", description)
 	cfg.t0 = time.Now()
-	cfg.rpcs0 = cfg.rpcTotal()
+	cfg.rpcS0 = cfg.rpcTotal()
 	atomic.StoreInt32(&cfg.ops, 0)
 }
 
@@ -415,11 +418,11 @@ func (cfg *config) end() {
 	cfg.checkTimeout()
 	if cfg.t.Failed() == false {
 		t := time.Since(cfg.t0).Seconds()  // real time
-		npeers := cfg.n                    // number of Raft peers
-		nrpc := cfg.rpcTotal() - cfg.rpcs0 // number of RPC sends
+		nPeers := cfg.n                    // number of Raft peers
+		nRpc := cfg.rpcTotal() - cfg.rpcS0 // number of RPC sends
 		ops := atomic.LoadInt32(&cfg.ops)  //  number of clerk get/put/append calls
 
 		fmt.Printf("  ... Passed --")
-		fmt.Printf("  %4.1f  %d %5d %4d\n", t, npeers, nrpc, ops)
+		fmt.Printf("  %4.1f  %d %5d %4d\n", t, nPeers, nRpc, ops)
 	}
 }

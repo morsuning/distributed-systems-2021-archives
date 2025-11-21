@@ -1,21 +1,25 @@
 package shardkv
 
-import "../shardmaster"
-import "../labrpc"
-import "testing"
-import "os"
+import (
+	"os"
+	"testing"
 
-// import "log"
-import crand "crypto/rand"
-import "math/big"
-import "math/rand"
-import "encoding/base64"
-import "sync"
-import "runtime"
-import "../raft"
-import "strconv"
-import "fmt"
-import "time"
+	"github.com/morsuning/distributed-systems-2021-archives/labrpc"
+	"github.com/morsuning/distributed-systems-2021-archives/shardctrler"
+
+	// import "log"
+	crand "crypto/rand"
+	"encoding/base64"
+	"fmt"
+	"math/big"
+	"math/rand"
+	"runtime"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/morsuning/distributed-systems-2021-archives/raft"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -31,7 +35,8 @@ func makeSeed() int64 {
 	return x
 }
 
-// Randomize server handles
+// random_handles Randomize server handles
+// 随机化服务器句柄
 func random_handles(kvh []*labrpc.ClientEnd) []*labrpc.ClientEnd {
 	sa := make([]*labrpc.ClientEnd, len(kvh))
 	copy(sa, kvh)
@@ -55,22 +60,25 @@ type config struct {
 	t     *testing.T
 	net   *labrpc.Network
 	start time.Time // time at which make_config() was called
+	// make_config() 被调用的时间（用于测试超时控制）
 
-	nmasters      int
-	masterservers []*shardmaster.ShardMaster
-	mck           *shardmaster.Clerk
+	nctrlers      int
+	ctrlerservers []*shardctrler.ShardCtrler
+	mck           *shardctrler.Clerk
 
 	ngroups int
 	n       int // servers per k/v group
-	groups  []*group
+	// 每个 K/V 副本组中的服务器数量
+	groups []*group
 
 	clerks       map[*Clerk][]string
-	nextClientId int
+	nextClientID int
 	maxraftstate int
 }
 
 func (cfg *config) checkTimeout() {
 	// enforce a two minute real-time limit on each test
+	// 为每个测试设置两分钟的实时上限
 	if !cfg.t.Failed() && time.Since(cfg.start) > 120*time.Second {
 		cfg.t.Fatal("test took longer than 120 seconds")
 	}
@@ -80,11 +88,15 @@ func (cfg *config) cleanup() {
 	for gi := 0; gi < cfg.ngroups; gi++ {
 		cfg.ShutdownGroup(gi)
 	}
+	for i := 0; i < cfg.nctrlers; i++ {
+		cfg.ctrlerservers[i].Kill()
+	}
 	cfg.net.Cleanup()
 	cfg.checkTimeout()
 }
 
 // check that no server's log is too big.
+// 检查是否存在某个服务器的日志过大。
 func (cfg *config) checklogs() {
 	for gi := 0; gi < cfg.ngroups; gi++ {
 		for i := 0; i < cfg.n; i++ {
@@ -101,13 +113,16 @@ func (cfg *config) checklogs() {
 	}
 }
 
-// master server name for labrpc.
-func (cfg *config) mastername(i int) string {
-	return "master" + strconv.Itoa(i)
+// controler server name for labrpc.
+// labrpc 中控制器服务的名称。
+func (cfg *config) ctrlername(i int) string {
+	return "ctrler" + strconv.Itoa(i)
 }
 
 // shard server name for labrpc.
+// labrpc 中分片服务的服务器名称。
 // i'th server of group gid.
+// group gid 的第 i 台服务器。
 func (cfg *config) servername(gid int, i int) string {
 	return "server-" + strconv.Itoa(gid) + "-" + strconv.Itoa(i)
 }
@@ -116,13 +131,14 @@ func (cfg *config) makeClient() *Clerk {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 
-	// ClientEnds to talk to master service.
-	ends := make([]*labrpc.ClientEnd, cfg.nmasters)
+	// ClientEnds to talk to controler service.
+	// 面向控制器服务的客户端端点。
+	ends := make([]*labrpc.ClientEnd, cfg.nctrlers)
 	endnames := make([]string, cfg.n)
-	for j := 0; j < cfg.nmasters; j++ {
+	for j := 0; j < cfg.nctrlers; j++ {
 		endnames[j] = randstring(20)
 		ends[j] = cfg.net.MakeEnd(endnames[j])
-		cfg.net.Connect(endnames[j], cfg.mastername(j))
+		cfg.net.Connect(endnames[j], cfg.ctrlername(j))
 		cfg.net.Enable(endnames[j], true)
 	}
 
@@ -134,7 +150,7 @@ func (cfg *config) makeClient() *Clerk {
 		return end
 	})
 	cfg.clerks[ck] = endnames
-	cfg.nextClientId++
+	cfg.nextClientID++
 	return ck
 }
 
@@ -150,6 +166,7 @@ func (cfg *config) deleteClient(ck *Clerk) {
 }
 
 // Shutdown i'th server of gi'th group, by isolating it
+// 通过隔离方式关闭第 gi 个组的第 i 台服务器
 func (cfg *config) ShutdownServer(gi int, i int) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
@@ -157,6 +174,7 @@ func (cfg *config) ShutdownServer(gi int, i int) {
 	gg := cfg.groups[gi]
 
 	// prevent this server from sending
+	// 阻止该服务器继续对外发送请求
 	for j := 0; j < len(gg.servers); j++ {
 		name := gg.endnames[i][j]
 		cfg.net.Enable(name, false)
@@ -167,17 +185,27 @@ func (cfg *config) ShutdownServer(gi int, i int) {
 	}
 
 	// disable client connections to the server.
+	// 禁用客户端与该服务器的连接。
 	// it's important to do this before creating
+	// 在创建新的 Persister 之前执行这一步非常关键，
 	// the new Persister in saved[i], to avoid
+	// 以避免在 saved[i] 创建新 Persister 后，
 	// the possibility of the server returning a
+	// 服务器仍返回 Append 成功，
 	// positive reply to an Append but persisting
+	// 并将结果写入已被替换的 Persister，
 	// the result in the superseded Persister.
+	// 导致持久化状态不一致。
 	cfg.net.DeleteServer(cfg.servername(gg.gid, i))
 
 	// a fresh persister, in case old instance
+	// 新建一个 Persister，防止旧实例继续写入旧持久化存储。
 	// continues to update the Persister.
+	// 以确保持久化状态正确隔离。
 	// but copy old persister's content so that we always
+	// 但需复制旧 Persister 的内容，
 	// pass Make() the last persisted state.
+	// 确保传递给新启动实例的是最近一次持久化的最新状态。
 	if gg.saved[i] != nil {
 		gg.saved[i] = gg.saved[i].Copy()
 	}
@@ -198,19 +226,23 @@ func (cfg *config) ShutdownGroup(gi int) {
 }
 
 // start i'th server in gi'th group
+// 启动第 gi 个组中的第 i 台服务器
 func (cfg *config) StartServer(gi int, i int) {
 	cfg.mu.Lock()
 
 	gg := cfg.groups[gi]
 
 	// a fresh set of outgoing ClientEnd names
+	// 为该服务器生成一组新的对外 ClientEnd 名称，
 	// to talk to other servers in this group.
+	// 用于与同组的其他服务器通信。
 	gg.endnames[i] = make([]string, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		gg.endnames[i][j] = randstring(20)
 	}
 
 	// and the connections to other servers in this group.
+	// 建立到同组其他服务器的连接。
 	ends := make([]*labrpc.ClientEnd, cfg.n)
 	for j := 0; j < cfg.n; j++ {
 		ends[j] = cfg.net.MakeEnd(gg.endnames[i][j])
@@ -218,21 +250,27 @@ func (cfg *config) StartServer(gi int, i int) {
 		cfg.net.Enable(gg.endnames[i][j], true)
 	}
 
-	// ends to talk to shardmaster service
-	mends := make([]*labrpc.ClientEnd, cfg.nmasters)
-	gg.mendnames[i] = make([]string, cfg.nmasters)
-	for j := 0; j < cfg.nmasters; j++ {
+	// ends to talk to shardctrler service
+	// 面向分片控制器服务的客户端端点。
+	mends := make([]*labrpc.ClientEnd, cfg.nctrlers)
+	gg.mendnames[i] = make([]string, cfg.nctrlers)
+	for j := 0; j < cfg.nctrlers; j++ {
 		gg.mendnames[i][j] = randstring(20)
 		mends[j] = cfg.net.MakeEnd(gg.mendnames[i][j])
-		cfg.net.Connect(gg.mendnames[i][j], cfg.mastername(j))
+		cfg.net.Connect(gg.mendnames[i][j], cfg.ctrlername(j))
 		cfg.net.Enable(gg.mendnames[i][j], true)
 	}
 
 	// a fresh persister, so old instance doesn't overwrite
+	// 新建 Persister，避免旧实例覆盖新实例的持久化状态。
 	// new instance's persisted state.
+	// 确保持久化状态正确隔离。
 	// give the fresh persister a copy of the old persister's
+	// 将旧 Persister 的内容复制到新 Persister，
 	// state, so that the spec is that we pass StartKVServer()
+	// 确保传给 StartKVServer() 的是最近一次持久化的最新状态，
 	// the last persisted state.
+	// 满足接口规范。
 	if gg.saved[i] != nil {
 		gg.saved[i] = gg.saved[i].Copy()
 	} else {
@@ -264,42 +302,45 @@ func (cfg *config) StartGroup(gi int) {
 	}
 }
 
-func (cfg *config) StartMasterServer(i int) {
-	// ClientEnds to talk to other master replicas.
-	ends := make([]*labrpc.ClientEnd, cfg.nmasters)
-	for j := 0; j < cfg.nmasters; j++ {
+func (cfg *config) StartCtrlerserver(i int) {
+	// ClientEnds to talk to other controler replicas.
+	// 面向其他控制器副本的客户端端点。
+	ends := make([]*labrpc.ClientEnd, cfg.nctrlers)
+	for j := 0; j < cfg.nctrlers; j++ {
 		endname := randstring(20)
 		ends[j] = cfg.net.MakeEnd(endname)
-		cfg.net.Connect(endname, cfg.mastername(j))
+		cfg.net.Connect(endname, cfg.ctrlername(j))
 		cfg.net.Enable(endname, true)
 	}
 
 	p := raft.MakePersister()
 
-	cfg.masterservers[i] = shardmaster.StartServer(ends, i, p)
+	cfg.ctrlerservers[i] = shardctrler.StartServer(ends, i, p)
 
-	msvc := labrpc.MakeService(cfg.masterservers[i])
-	rfsvc := labrpc.MakeService(cfg.masterservers[i].Raft())
+	msvc := labrpc.MakeService(cfg.ctrlerservers[i])
+	rfsvc := labrpc.MakeService(cfg.ctrlerservers[i].Raft())
 	srv := labrpc.MakeServer()
 	srv.AddService(msvc)
 	srv.AddService(rfsvc)
-	cfg.net.AddServer(cfg.mastername(i), srv)
+	cfg.net.AddServer(cfg.ctrlername(i), srv)
 }
 
-func (cfg *config) shardclerk() *shardmaster.Clerk {
-	// ClientEnds to talk to master service.
-	ends := make([]*labrpc.ClientEnd, cfg.nmasters)
-	for j := 0; j < cfg.nmasters; j++ {
+func (cfg *config) shardclerk() *shardctrler.Clerk {
+	// ClientEnds to talk to ctrler service.
+	// 面向控制器服务的客户端端点。
+	ends := make([]*labrpc.ClientEnd, cfg.nctrlers)
+	for j := 0; j < cfg.nctrlers; j++ {
 		name := randstring(20)
 		ends[j] = cfg.net.MakeEnd(name)
-		cfg.net.Connect(name, cfg.mastername(j))
+		cfg.net.Connect(name, cfg.ctrlername(j))
 		cfg.net.Enable(name, true)
 	}
 
-	return shardmaster.MakeClerk(ends)
+	return shardctrler.MakeClerk(ends)
 }
 
-// tell the shardmaster that a group is joining.
+// tell the shardctrler that a group is joining.
+// 通知分片控制器有副本组加入。
 func (cfg *config) join(gi int) {
 	cfg.joinm([]int{gi})
 }
@@ -317,7 +358,8 @@ func (cfg *config) joinm(gis []int) {
 	cfg.mck.Join(m)
 }
 
-// tell the shardmaster that a group is leaving.
+// tell the shardctrler that a group is leaving.
+// 通知分片控制器有副本组离开。
 func (cfg *config) leave(gi int) {
 	cfg.leavem([]int{gi})
 }
@@ -346,11 +388,12 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 	cfg.net = labrpc.MakeNetwork()
 	cfg.start = time.Now()
 
-	// master
-	cfg.nmasters = 3
-	cfg.masterservers = make([]*shardmaster.ShardMaster, cfg.nmasters)
-	for i := 0; i < cfg.nmasters; i++ {
-		cfg.StartMasterServer(i)
+	// controler
+	// 控制器（shardctrler）
+	cfg.nctrlers = 3
+	cfg.ctrlerservers = make([]*shardctrler.ShardCtrler, cfg.nctrlers)
+	for i := 0; i < cfg.nctrlers; i++ {
+		cfg.StartCtrlerserver(i)
 	}
 	cfg.mck = cfg.shardclerk()
 
@@ -364,14 +407,14 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 		gg.servers = make([]*ShardKV, cfg.n)
 		gg.saved = make([]*raft.Persister, cfg.n)
 		gg.endnames = make([][]string, cfg.n)
-		gg.mendnames = make([][]string, cfg.nmasters)
+		gg.mendnames = make([][]string, cfg.nctrlers)
 		for i := 0; i < cfg.n; i++ {
 			cfg.StartServer(gi, i)
 		}
 	}
 
 	cfg.clerks = make(map[*Clerk][]string)
-	cfg.nextClientId = cfg.n + 1000 // client ids start 1000 above the highest serverid
+	cfg.nextClientID = cfg.n + 1000 // client ids start 1000 above the highest serverid
 
 	cfg.net.Reliable(!unreliable)
 

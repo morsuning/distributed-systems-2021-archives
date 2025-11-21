@@ -1,0 +1,3 @@
+Lecture 3
+
+Describe a sequence of events that would result in a client reading stale data from the Google File System.

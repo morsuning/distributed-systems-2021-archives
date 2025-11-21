@@ -1,0 +1,3 @@
+Lecture 2
+
+The assigned reading for today is not a paper, but the Online Go tutorial. The assigned "question" is the Crawler exercise in the tutorial. Also, take a look at Go's RPC package, which you will use in lab 1.

@@ -2,12 +2,12 @@ package raft
 
 import "log"
 
-// Debugging
-const Debug = 0
+// Debug 控制是否打印调试信息
+const Debug = false
 
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug > 0 {
+// DebugPrintf 如果 Debug 为 true，则打印格式化的调试信息。
+func DebugPrintf(format string, a ...interface{}) {
+	if Debug {
 		log.Printf(format, a...)
 	}
-	return
 }

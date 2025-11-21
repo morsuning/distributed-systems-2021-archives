@@ -1,0 +1,3 @@
+Lecture 20
+
+Why is it important that Blockstack names be unique, human-readable, and decentralized? Why is providing all three properties hard?

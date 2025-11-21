@@ -15,12 +15,15 @@ package main
 //   -d directory
 //   -r restart
 
-import "time"
-import "diskv"
-import "os"
-import "fmt"
-import "strconv"
-import "runtime"
+import (
+	"fmt"
+	"os"
+	"runtime"
+	"strconv"
+	"time"
+
+	"github.com/morsuning/distributed-systems-2021-archives/diskv"
+)
 
 func usage() {
 	fmt.Printf("Usage: diskvd -g gid -m master... -s server... -i my-index -d dir\n")

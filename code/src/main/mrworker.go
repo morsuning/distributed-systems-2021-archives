@@ -3,7 +3,7 @@ package main
 //
 // start a worker process, which is implemented
 // in ../mr/worker.go. typically there will be
-// multiple worker processes, talking to one master.
+// multiple worker processes, talking to one coordinator.
 //
 // go run mrworker.go wc.so
 //
@@ -16,7 +16,7 @@ import (
 	"os"
 	"plugin"
 
-	"../mr"
+	"github.com/morsuning/distributed-systems-2021-archives/mr"
 )
 
 func main() {
@@ -30,10 +30,8 @@ func main() {
 	mr.Worker(mapf, reducef)
 }
 
-//
 // load the application Map and Reduce functions
 // from a plugin file, e.g. ../mrapps/wc.so
-//
 func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(string, []string) string) {
 	p, err := plugin.Open(filename)
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
@@ -15,7 +15,7 @@ import (
 )
 
 // map 阶段应该将 Map 任务生成的中间件划分到 n 个 Reduce 中
-// n 应该作为参数传递给 makemaster
+// n 应该作为参数传递给 makecoordinator
 
 var nReduce int
 var mMap int
@@ -30,7 +30,6 @@ type KeyValue struct {
 // 通过 key 决定给那个 Reduce 任务执行
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
-//
 func ihash(key string) int {
 	h := fnv.New32a()
 	if _, err := h.Write([]byte(key)); err != nil {
@@ -41,12 +40,11 @@ func ihash(key string) int {
 
 // Worker main/mrworker.go calls this function.
 // 创建一个 Worker 进程，等待指令
-// 通过 RPC 请求任务;等待机制，让 Worker 不断询问还是由 Master 通知
+// 通过 RPC 请求任务;等待机制，让 Worker 不断询问还是由 Coordinator 通知
 // 读文件并运行任务 - 得到的格式，任务类型和文件位置
 // 使用encoding/json写读中间文件
-// 完成任务通知 Master，任务完成状态和位置
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+// 完成任务通知 Coordinator，任务完成状态和位置
+func Worker(mapFunc func(string, string) []KeyValue, reduceFunc func(string, []string) string) {
 	for {
 		rep := questTask()
 		mMap = rep.MMap
@@ -55,9 +53,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		switch t.TaskType {
 		case MapPhase:
 			f := rep.FileName
-			MapTask(mapf, t, f)
+			MapTask(mapFunc, t, f)
 		case ReducePhase:
-			ReduceTask(reducef, t)
+			ReduceTask(reduceFunc, t)
 		case FinishedPhase:
 			return
 		default:
@@ -69,44 +67,43 @@ func Worker(mapf func(string, string) []KeyValue,
 }
 
 func questTask() *GetTaskReply {
-	args := Args{}
 	reply := GetTaskReply{}
-	call("Master.GetTaskHandler", &args, &reply)
-	log.Printf("Get Task From Master: (%v, %d)", reply.Task.TaskType, reply.Task.Id)
+	call("Coordinator.GetTaskHandler", &Args{}, &reply)
+	log.Printf("Get Task From Coordinator: (%v, %d)", reply.Task.TaskType, reply.Task.Id)
 	return &reply
 }
 
 func finishTask(task Task) *FinishTaskReply {
 	args := Args{task}
 	reply := FinishTaskReply{}
-	call("Master.FinishTaskHandler", &args, &reply)
+	call("Coordinator.FinishTaskHandler", &args, &reply)
 	return &reply
 }
 
-//
-// send an RPC request to the master, wait for the response.
+// send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-//
-func call(rpcname string, args interface{}, reply interface{}) bool {
+func call(rpcName string, args any, reply any) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	sockname := masterSock()
-	c, err := rpc.DialHTTP("unix", sockname)
+	sockName := coordinatorSock()
+	c, err := rpc.DialHTTP("unix", sockName)
 	if err != nil {
 		log.Fatal("Dialing:", err)
 	}
-	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
-	if err == nil {
-		return true
+	defer func(c *rpc.Client) {
+		err := c.Close()
+		if err != nil {
+			log.Fatal("Closing:", err)
+		}
+	}(c)
+	if err := c.Call(rpcName, args, reply); err != nil {
+		return false
 	}
-	fmt.Println(err)
-	return false
+	return true
 }
 
 // MapTask 执行 Map 任务返回中间文件位置
-func MapTask(mapf func(string, string) []KeyValue, task Task, fileName string) {
+func MapTask(mapFunc func(string, string) []KeyValue, task Task, fileName string) {
 	file, err := os.Open(FilePath + fileName)
 	defer func(fileName string) {
 		if err := file.Close(); err != nil {
@@ -116,11 +113,11 @@ func MapTask(mapf func(string, string) []KeyValue, task Task, fileName string) {
 	if err != nil {
 		log.Fatalf("Can't open file: %v", fileName)
 	}
-	content, err := ioutil.ReadAll(file)
+	content, err := io.ReadAll(file)
 	if err != nil {
 		log.Fatalf("Can't read file: %v", fileName)
 	}
-	kva := mapf(fileName, string(content))
+	kva := mapFunc(fileName, string(content))
 	tempFiles := createTempFiles(task, kva)
 	// 只留下有内容的 Temp File
 	if err := renameTempFiles(tempFiles, task.Id); err != nil {
@@ -135,7 +132,7 @@ func createTempFiles(task Task, kva []KeyValue) map[int]*os.File {
 		wg.Add(1)
 		// task.Id 为已经创建的 map 任务编号，i 为 Reduce 任务编号
 		fileName := "mr-" + strconv.Itoa(task.Id) + strconv.Itoa(i)
-		f, err := ioutil.TempFile(TempFilePath, fileName)
+		f, err := os.CreateTemp(TempFilePath, fileName)
 		if err != nil {
 			log.Fatalf("Create temp file fail: Task(%v, %v)", task.TaskType, task.Id)
 		}
@@ -170,13 +167,13 @@ func renameTempFiles(tempFiles map[int]*os.File, taskID int) error {
 
 type ByKey []KeyValue
 
-// for sorting by key.
+// Len for sorting by key.
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
-// 执行 Reduce 任务
-func ReduceTask(reducef func(string, []string) string, task Task) {
+// ReduceTask 执行 Reduce 任务
+func ReduceTask(reduceFunc func(string, []string) string, task Task) {
 	temp := readTempFiles(task)
 	sort.Sort(ByKey(temp))
 	f := createTempOutputFile(task)
@@ -194,7 +191,7 @@ func ReduceTask(reducef func(string, []string) string, task Task) {
 		for k := i; k < j; k++ {
 			values = append(values, temp[k].Value)
 		}
-		res := reducef(temp[i].Key, values)
+		res := reduceFunc(temp[i].Key, values)
 		if _, err := fmt.Fprintf(f, "%v %v\n", temp[i].Key, res); err != nil {
 			log.Fatalf("Can't write file: %v", f.Name())
 		}
@@ -237,7 +234,7 @@ func readTempFiles(task Task) []KeyValue {
 
 func createTempOutputFile(task Task) *os.File {
 	filename := "mr-out-" + strconv.Itoa(task.Id)
-	f, err := ioutil.TempFile(TempFilePath, filename)
+	f, err := os.CreateTemp(TempFilePath, filename)
 	if err != nil {
 		log.Fatalf("Can't create temp file: %v", filename)
 	}
